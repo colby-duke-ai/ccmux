@@ -83,6 +83,7 @@ func runSession(sessionID string) error {
 			}
 		} else {
 			tmuxManager.SourceUserConfig()
+			tmuxManager.EnsureRemainOnExit()
 			tmuxManager.SelectFirstWindow()
 		}
 		return tmuxManager.AttachSession()

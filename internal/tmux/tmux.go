@@ -38,6 +38,7 @@ func (m *Manager) CreateSessionWithCommand(workingDir, command string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create tmux session: %s: %w", string(output), err)
 	}
+	exec.Command("tmux", "set-hook", "-t", m.sessionName, "after-new-window", "set-option -w remain-on-exit on").Run()
 	m.SourceUserConfig()
 	return nil
 }
@@ -130,6 +131,10 @@ func (m *Manager) RenameWindow(windowID, name string) error {
 	cmd := exec.Command("tmux", "rename-window", "-t", windowID, name)
 	cmd.Run()
 	return nil
+}
+
+func (m *Manager) EnsureRemainOnExit() {
+	exec.Command("tmux", "set-hook", "-t", m.sessionName, "after-new-window", "set-option -w remain-on-exit on").Run()
 }
 
 func InsideTmux() bool {
