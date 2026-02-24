@@ -78,7 +78,13 @@ func renderMainView(m model) string {
 		b.WriteString("\n")
 	} else {
 		for _, a := range m.agents {
-			if a.Status == agent.StatusKilling || (m.cleaningUp && a.ID == m.cleaningUpAgent) {
+			if a.Status == agent.StatusCleaningUp {
+				spin := styledSpinner(m.spinnerFrame, agentCleaningUpStyle)
+				status := agentCleaningUpStyle.Render("cleaning up")
+				line := fmt.Sprintf("  %s %s: %s [%s]", spin, a.ID, marquee(a.Task, MaxTaskDisplayLen, m.marqueeOffset), status)
+				b.WriteString(line)
+				b.WriteString("\n")
+			} else if a.Status == agent.StatusKilling {
 				spin := styledSpinner(m.spinnerFrame, agentKillingStyle)
 				status := agentKillingStyle.Render("killing")
 				line := fmt.Sprintf("  %s %s: %s [%s]", spin, a.ID, marquee(a.Task, MaxTaskDisplayLen, m.marqueeOffset), status)
@@ -538,6 +544,8 @@ func renderAgentStatus(status agent.Status) string {
 	switch status {
 	case agent.StatusRunning:
 		return agentRunningStyle.Render("running")
+	case agent.StatusCleaningUp:
+		return agentCleaningUpStyle.Render("cleaning up")
 	case agent.StatusKilling:
 		return agentKillingStyle.Render("killing")
 	case agent.StatusReady:
@@ -557,6 +565,8 @@ func getAgentStatusStyle(status agent.Status) lipgloss.Style {
 		return agentSpawningStyle
 	case agent.StatusRunning:
 		return agentRunningStyle
+	case agent.StatusCleaningUp:
+		return agentCleaningUpStyle
 	case agent.StatusKilling:
 		return agentKillingStyle
 	case agent.StatusReady:
