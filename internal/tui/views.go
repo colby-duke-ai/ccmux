@@ -215,7 +215,7 @@ func renderNewTaskInputView(m model) string {
 	b.WriteString(inputStyle.Render(m.taskInput.View()))
 	b.WriteString("\n\n")
 
-	help := "[enter] submit  [alt+enter] new line  [esc] back"
+	help := "[enter] submit  [shift+enter] new line  [esc] back"
 	b.WriteString(helpStyle.Render(help))
 
 	return b.String()
@@ -278,7 +278,7 @@ func renderInterveneInputView(m model) string {
 	b.WriteString(dimStyle.Render("This will send the text to the agent's terminal"))
 	b.WriteString("\n\n")
 
-	help := "[enter] send  [alt+enter] new line  [esc] back"
+	help := "[enter] send  [shift+enter] new line  [esc] back"
 	b.WriteString(helpStyle.Render(help))
 
 	return b.String()
@@ -337,7 +337,7 @@ func renderConfirmMergeView(m model) string {
 		b.WriteString("\n\n")
 	}
 
-	help := "[y] confirm  [n] cancel"
+	help := "[y]es  [n]o"
 	b.WriteString(helpStyle.Render(help))
 
 	return b.String()
@@ -465,7 +465,7 @@ func renderConfirmRemoveProjectView(m model) string {
 		b.WriteString("\n\n")
 	}
 
-	help := "[y] confirm  [n] cancel"
+	help := "[y]es  [n]o"
 	b.WriteString(helpStyle.Render(help))
 
 	return b.String()
@@ -490,7 +490,7 @@ func renderConfirmKillSessionView(m model) string {
 
 	b.WriteString("Are you sure you want to kill everything?\n\n")
 
-	help := "[y] yes, kill everything  [n] cancel"
+	help := "[y]es, kill everything  [n]o"
 	b.WriteString(helpStyle.Render(help))
 
 	return b.String()
