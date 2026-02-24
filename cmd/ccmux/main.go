@@ -101,6 +101,13 @@ func runSession(sessionID string) error {
 		} else {
 			tmuxManager.SourceUserConfig()
 			tmuxManager.EnsureRemainOnExit()
+
+			exePath, err := os.Executable()
+			if err == nil {
+				cmd := fmt.Sprintf("%s %s", exePath, sessionID)
+				tmuxManager.RespawnDeadPane(tmuxSessionName+":0", cmd)
+			}
+
 			tmuxManager.SelectFirstWindow()
 		}
 		return tmuxManager.AttachSession()
