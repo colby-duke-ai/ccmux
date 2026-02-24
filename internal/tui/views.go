@@ -58,7 +58,7 @@ func renderLogo() string {
 		c.Render("  ██║      ██║      ") + w.Render("██║╚██╔╝██║██║   ██║ ██╔██╗ "),
 		c.Render("  ╚██████╗ ╚██████╗ ") + w.Render("██║ ╚═╝ ██║╚██████╔╝██╔╝ ██╗"),
 		c.Render("   ╚═════╝  ╚═════╝ ") + w.Render("╚═╝     ╚═╝ ╚═════╝ ╚═╝  ╚═╝"),
-		"  " + c.Render("C") + w.Render("laude ") + c.Render("C") + w.Render("ode ") + w.Render("Mu") + w.Render("ltiple") + w.Render("x") + w.Render("er"),
+		"  " + c.Render("C") + w.Render("olby's ") + c.Render("C") + w.Render("laude ") + w.Render("Mu") + w.Render("ltiple") + w.Render("x") + w.Render("er"),
 	}
 
 	return strings.Join(lines, "\n")
@@ -316,7 +316,7 @@ func renderReviewView(m model) string {
 		b.WriteString("\n")
 	}
 
-	help := "[↑/↓/j/k] select  [a]pprove & merge  [c]omment  [r]eject  [b]rowser  [esc] back"
+	help := "[↑/↓/j/k] select  [a]ccept  [c]omment  [r]eject  [b]rowser  [esc] back"
 	b.WriteString(helpStyle.Render(help))
 
 	return b.String()

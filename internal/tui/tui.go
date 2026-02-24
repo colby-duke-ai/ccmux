@@ -400,7 +400,7 @@ func (m model) handleMainKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case queue.ItemTypeIdle, queue.ItemTypeQuestion:
 			for _, a := range m.agents {
 				if a.ID == item.AgentID {
-					return m, m.jumpToAgentCmd(a)
+					return m, m.quickRespondToAgentCmd(a)
 				}
 			}
 		case queue.ItemTypePRReady:
@@ -564,11 +564,11 @@ func (m model) handleReviewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.selectedIndex++
 		}
 	case "a":
-		if a, item := findAgent(); a != nil {
+		if a, _ := findAgent(); a != nil {
 			m.view = ViewMain
 			m.cleaningUp = true
 			m.cleaningUpAgent = a.ID
-			return m, m.approvePRCmd(a, item.Details)
+			return m, m.acceptPRCmd(a)
 		}
 	case "c":
 		if a, item := findAgent(); a != nil {
@@ -869,6 +869,16 @@ func (m model) jumpToAgentCmd(a *agent.Agent) tea.Cmd {
 	}
 }
 
+func (m model) quickRespondToAgentCmd(a *agent.Agent) tea.Cmd {
+	return func() tea.Msg {
+		m.queueManager.RemoveByAgent(a.ID)
+		if err := m.tmuxManager.SelectWindow(a.TmuxWindow); err != nil {
+			return errMsg{err}
+		}
+		return nil
+	}
+}
+
 func (m model) sendKeysToAgentCmd(a *agent.Agent, text string) tea.Cmd {
 	return func() tea.Msg {
 		if err := m.tmuxManager.SendKeys(a.TmuxWindow, text); err != nil {
@@ -891,25 +901,15 @@ func (m model) cleanupAgentCmd(a *agent.Agent) tea.Cmd {
 	}
 }
 
-func (m model) approvePRCmd(a *agent.Agent, prURL string) tea.Cmd {
+func (m model) acceptPRCmd(a *agent.Agent) tea.Cmd {
 	agentID := a.ID
 	return func() tea.Msg {
-		approveCmd := exec.Command("gh", "pr", "review", prURL, "--approve", "--body", "Approved via ccmux")
-		if output, err := approveCmd.CombinedOutput(); err != nil {
-			return errMsg{fmt.Errorf("approve failed: %s: %w", string(output), err)}
-		}
-
-		mergeCmd := exec.Command("gh", "pr", "merge", prURL, "--merge", "--delete-branch")
-		if output, err := mergeCmd.CombinedOutput(); err != nil {
-			return errMsg{fmt.Errorf("merge failed: %s: %w", string(output), err)}
-		}
-
 		go func() {
 			exePath, _ := os.Executable()
 			exec.Command(exePath, "cleanup", agentID).Run()
 		}()
 
-		return successMsg{fmt.Sprintf("Approved & merged PR, cleaning up agent %s", agentID)}
+		return successMsg{fmt.Sprintf("Accepted PR, cleaning up agent %s", agentID)}
 	}
 }
 
@@ -929,9 +929,19 @@ func (m model) commentPRCmd(a *agent.Agent, prURL string) tea.Cmd {
 			return errMsg{fmt.Errorf("failed to write review script: %w", err)}
 		}
 
-		if err := m.tmuxManager.RespawnPane(tmuxWindow, "bash "+scriptPath); err != nil {
-			return errMsg{fmt.Errorf("failed to restart agent: %w", err)}
+		// Kill old window and create a fresh one instead of respawning the
+		// dead pane. Respawn-pane inherits stale terminal state (alternate
+		// screen, raw mode) from the previous Claude Code process, which
+		// causes the new process to hang waiting for input.
+		m.tmuxManager.KillWindow(tmuxWindow)
+		newWindowID, err := m.tmuxManager.CreateWindow(worktreePath, "bash "+scriptPath, agentID[:8])
+		if err != nil {
+			return errMsg{fmt.Errorf("failed to create review window: %w", err)}
 		}
+
+		m.agentStore.Update(agentID, func(ag *agent.Agent) {
+			ag.TmuxWindow = newWindowID
+		})
 
 		return successMsg{fmt.Sprintf("Agent %s resumed to address PR comments", agentID)}
 	}
