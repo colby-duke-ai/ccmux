@@ -146,6 +146,15 @@ func (m *Manager) EnsureRemainOnExit() {
 	exec.Command("tmux", "set-hook", "-t", m.sessionName, "after-new-window", "set-option -w remain-on-exit on").Run()
 }
 
+func (m *Manager) RespawnDeadPane(windowID, command string) error {
+	cmd := exec.Command("tmux", "respawn-pane", "-t", windowID, command)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to respawn pane: %s: %w", string(output), err)
+	}
+	return nil
+}
+
 func InsideTmux() bool {
 	return os.Getenv("TMUX") != ""
 }
