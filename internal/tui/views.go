@@ -62,7 +62,6 @@ func renderLogo() string {
 		c.Render("  ╚██████╗ ╚██████╗ ") + w.Render("██║ ╚═╝ ██║╚██████╔╝██╔╝ ██╗"),
 		c.Render("   ╚═════╝  ╚═════╝ ") + w.Render("╚═╝     ╚═╝ ╚═════╝ ╚═╝  ╚═╝"),
 		"  " + c.Render("C") + w.Render("olby's ") + c.Render("C") + w.Render("laude ") + w.Render("Mu") + w.Render("ltiple") + w.Render("x") + w.Render("er"),
-		"  " + dimStyle.Render(version.Version),
 	}
 
 	return strings.Join(lines, "\n")
@@ -72,6 +71,12 @@ func renderMainView(m model) string {
 	var b strings.Builder
 
 	b.WriteString(renderLogo())
+	b.WriteString("\n")
+	if m.updateAvailable && m.updateVersion != "" {
+		b.WriteString("  " + dimStyle.Render(version.Version) + " - " + projectStyle.Render("[u]pdate to latest remote ("+m.updateVersion+")"))
+	} else {
+		b.WriteString("  " + dimStyle.Render(version.Version))
+	}
 	b.WriteString("\n\n")
 
 	b.WriteString(headerStyle.Render(fmt.Sprintf("# Agents (%d)", len(m.agents))))
@@ -149,7 +154,7 @@ func renderMainView(m model) string {
 		b.WriteString("\n\n")
 	}
 
-	help := "[q]uick respond  [n]ew task  [j]ump to agent  [k]ill agent  [p]rojects  [u]pdate  [K]ill session"
+	help := "[q]uick respond  [n]ew task  [j]ump to agent  [k]ill agent  [p]rojects  [K]ill session"
 	b.WriteString(helpStyle.Render(help))
 
 	return b.String()

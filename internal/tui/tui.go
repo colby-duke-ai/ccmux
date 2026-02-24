@@ -224,6 +224,7 @@ func (m model) Init() tea.Cmd {
 		tickCmd(),
 		spinnerTickCmd(),
 		m.refreshCmd(),
+		checkForUpdateCmd(),
 	)
 }
 
