@@ -64,6 +64,9 @@ type model struct {
 	spinnerFrame  int
 	marqueeOffset int
 
+	// Periodic update check
+	lastUpdateCheck time.Time
+
 	agentStore   *agent.Store
 	queueManager *queue.Queue
 	projectStore *project.Store
@@ -242,16 +245,17 @@ func initialModel(agentStore *agent.Store, queueManager *queue.Queue, projectSto
 	interveneInput := newAutoGrowTextarea("Type message to send to agent...", 60)
 
 	return model{
-		view:           ViewMain,
-		taskInput:      taskInput,
-		branchInput:    branchInput,
-		interveneInput: interveneInput,
-		projectForm:    newProjectForm(),
-		agentStore:     agentStore,
-		queueManager:   queueManager,
-		projectStore:   projectStore,
-		tmuxManager:    tmuxManager,
-		sessionID:      sessionID,
+		view:            ViewMain,
+		taskInput:       taskInput,
+		branchInput:     branchInput,
+		interveneInput:  interveneInput,
+		projectForm:     newProjectForm(),
+		agentStore:      agentStore,
+		queueManager:    queueManager,
+		projectStore:    projectStore,
+		tmuxManager:     tmuxManager,
+		sessionID:       sessionID,
+		lastUpdateCheck: time.Now(),
 	}
 }
 
@@ -355,7 +359,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tickMsg:
-		return m, tea.Batch(tickCmd(), m.refreshCmd())
+		cmds := []tea.Cmd{tickCmd(), m.refreshCmd()}
+		if time.Since(m.lastUpdateCheck) > 5*time.Minute {
+			m.lastUpdateCheck = time.Now()
+			cmds = append(cmds, checkForUpdateCmd())
+		}
+		return m, tea.Batch(cmds...)
 
 	case spinnerTickMsg:
 		hasAnimatedAgents := false
@@ -383,6 +392,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case updateCheckResultMsg:
 		m.updateChecking = false
+		m.lastUpdateCheck = time.Now()
 		if msg.err != nil {
 			m.updateError = fmt.Sprintf("Update check failed: %s", msg.err.Error())
 			return m, nil
