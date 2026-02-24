@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
@@ -204,14 +205,11 @@ func renderNewTaskBranchView(m model) string {
 		b.WriteString("\n")
 	}
 
-	b.WriteString("Select base branch:\n\n")
+	b.WriteString("Search: ")
+	b.WriteString(inputStyle.Render(m.branchFilter.View()))
+	b.WriteString("\n\n")
 
-	var entries []branchEntry
-	entries = append(entries, branchEntry{tag: "(origin)", name: "master"})
-	entries = append(entries, branchEntry{name: "Manually specify branch"})
-	for _, branch := range m.branchOptions {
-		entries = append(entries, branchEntry{tag: "(local)", name: branch})
-	}
+	entries := m.branchEntries()
 
 	renderScrollableList(&b, len(entries), m.selectedIndex, MaxVisibleBranchItems, func(i int, selected bool) string {
 		entry := entries[i]
@@ -234,7 +232,7 @@ func renderNewTaskBranchView(m model) string {
 
 	b.WriteString("\n")
 
-	help := "[↑/↓/j/k] select  [enter] choose  [esc] back"
+	help := "[↑/↓] select  [enter] choose  [esc] back"
 	b.WriteString(helpStyle.Render(help))
 
 	return b.String()
@@ -243,7 +241,7 @@ func renderNewTaskBranchView(m model) string {
 func renderNewTaskBranchInputView(m model) string {
 	var b strings.Builder
 
-	b.WriteString(titleStyle.Render("# New Task - Base Branch"))
+	b.WriteString(titleStyle.Render("# New Task - Specify Branch"))
 	b.WriteString("\n\n")
 
 	if m.selectedProj != nil {
@@ -252,111 +250,17 @@ func renderNewTaskBranchInputView(m model) string {
 		b.WriteString("\n")
 	}
 
-	b.WriteString("Search branches:\n")
+	b.WriteString("Enter branch name:\n")
 	b.WriteString(inputStyle.Render(m.branchInput.View()))
 	b.WriteString("\n\n")
 
-	entries := m.branchFilteredEntries
-	totalItems := len(entries)
+	b.WriteString(dimStyle.Render("Leave empty for origin/master"))
+	b.WriteString("\n\n")
 
-	if totalItems == 0 {
-		if m.branchInput.Value() != "" {
-			b.WriteString(dimStyle.Render("  No matching branches"))
-			b.WriteString("\n")
-			b.WriteString(dimStyle.Render("  Press enter to use \"" + m.branchInput.Value() + "\" as-is"))
-			b.WriteString("\n")
-		} else {
-			b.WriteString(dimStyle.Render("  No branches found"))
-			b.WriteString("\n")
-		}
-	} else {
-		visibleStart := 0
-		visibleEnd := totalItems
-		if totalItems > MaxVisibleBranchItems {
-			half := MaxVisibleBranchItems / 2
-			visibleStart = m.branchSearchIndex - half
-			if visibleStart < 0 {
-				visibleStart = 0
-			}
-			visibleEnd = visibleStart + MaxVisibleBranchItems
-			if visibleEnd > totalItems {
-				visibleEnd = totalItems
-				visibleStart = visibleEnd - MaxVisibleBranchItems
-			}
-		}
-
-		if visibleStart > 0 {
-			b.WriteString(dimStyle.Render("  ↑ more"))
-			b.WriteString("\n")
-		}
-
-		for i := visibleStart; i < visibleEnd; i++ {
-			entry := entries[i]
-			isSelected := i == m.branchSearchIndex
-
-			if isSelected {
-				var text string
-				if entry.tag != "" {
-					text = entry.tag + " " + entry.name
-				} else {
-					text = entry.name
-				}
-				b.WriteString(selectedItemStyle.Render(text))
-			} else {
-				var text string
-				if entry.tag != "" {
-					text = branchTagStyle.Render(entry.tag) + " " + renderMatchedName(entry.name, entry.matchedIndexes)
-				} else {
-					text = renderMatchedName(entry.name, entry.matchedIndexes)
-				}
-				b.WriteString(queueItemStyle.Render(text))
-			}
-			b.WriteString("\n")
-		}
-
-		if visibleEnd < totalItems {
-			b.WriteString(dimStyle.Render("  ↓ more"))
-			b.WriteString("\n")
-		}
-	}
-
-	b.WriteString("\n")
-
-	help := "[↑/↓] select  [enter] choose  [esc] back"
+	help := "[enter] confirm  [esc] back"
 	b.WriteString(helpStyle.Render(help))
 
 	return b.String()
-}
-
-func renderMatchedName(name string, matchedIndexes []int) string {
-	if len(matchedIndexes) == 0 {
-		return name
-	}
-
-	matchSet := make(map[int]bool)
-	for _, idx := range matchedIndexes {
-		matchSet[idx] = true
-	}
-
-	runes := []rune(name)
-	var result strings.Builder
-	i := 0
-	for i < len(runes) {
-		if matchSet[i] {
-			start := i
-			for i < len(runes) && matchSet[i] {
-				i++
-			}
-			result.WriteString(branchMatchStyle.Render(string(runes[start:i])))
-		} else {
-			start := i
-			for i < len(runes) && !matchSet[i] {
-				i++
-			}
-			result.WriteString(string(runes[start:i]))
-		}
-	}
-	return result.String()
 }
 
 func renderNewTaskInputView(m model) string {
@@ -899,12 +803,13 @@ func renderUpdateView(m model) string {
 	} else if m.updateDownloading {
 		b.WriteString(fmt.Sprintf("Latest version:  %s\n", projectStyle.Render(m.updateVersion)))
 		renderChangelog(&b, m.changelogEntries, m.selectedIndex, false, m.spinnerFrame)
-		b.WriteString(fmt.Sprintf("\n%s Downloading update...\n", styledSpinner(m.spinnerFrame, agentRunningStyle)))
+		pct := atomic.LoadInt64(m.downloadProgress)
+		b.WriteString(fmt.Sprintf("\n%s Downloading update... %d%%\n", styledSpinner(m.spinnerFrame, agentRunningStyle), pct))
 	} else if m.updateComplete {
 		b.WriteString(fmt.Sprintf("Updated to:      %s\n", projectStyle.Render(m.updateVersion)))
 		renderChangelog(&b, m.changelogEntries, m.selectedIndex, false, m.spinnerFrame)
 		b.WriteString("\n")
-		b.WriteString(agentReadyStyle.Render("Update complete! Detach and reattach to use the new version."))
+		b.WriteString(agentReadyStyle.Render("Update complete!"))
 		b.WriteString("\n")
 	} else if m.updateAvailable {
 		b.WriteString(fmt.Sprintf("Latest version:  %s\n", projectStyle.Render(m.updateVersion)))
@@ -918,7 +823,10 @@ func renderUpdateView(m model) string {
 
 	b.WriteString("\n")
 
-	if m.updateAvailable && !m.updateDownloading && !m.updateComplete {
+	if m.updateComplete {
+		help := "[r]estart  [esc] back"
+		b.WriteString(helpStyle.Render(help))
+	} else if m.updateAvailable && !m.updateDownloading {
 		help := "[↑/↓/j/k] scroll  [y] install  [n] cancel"
 		b.WriteString(helpStyle.Render(help))
 	} else if !m.updateChecking && !m.updateDownloading {
