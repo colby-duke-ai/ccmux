@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -536,6 +537,19 @@ func (m model) handleInterveneKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m model) handleReviewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	items := filterQueueByType(m.queueItems, queue.ItemTypePRReady)
 
+	findAgent := func() (*agent.Agent, *queue.QueueItem) {
+		if m.selectedIndex < 0 || m.selectedIndex >= len(items) {
+			return nil, nil
+		}
+		selected := items[m.selectedIndex]
+		for _, a := range m.agents {
+			if a.ID == selected.AgentID {
+				return a, selected
+			}
+		}
+		return nil, nil
+	}
+
 	switch msg.String() {
 	case "esc":
 		m.view = ViewMain
@@ -547,17 +561,24 @@ func (m model) handleReviewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.selectedIndex < len(items)-1 {
 			m.selectedIndex++
 		}
+	case "a":
+		if a, item := findAgent(); a != nil {
+			m.view = ViewMain
+			m.cleaningUp = true
+			m.cleaningUpAgent = a.ID
+			return m, m.approvePRCmd(a, item.Details)
+		}
 	case "c":
-		if m.selectedIndex >= 0 && m.selectedIndex < len(items) {
-			selected := items[m.selectedIndex]
-			for _, a := range m.agents {
-				if a.ID == selected.AgentID {
-					m.view = ViewMain
-					m.cleaningUp = true
-					m.cleaningUpAgent = a.ID
-					return m, m.cleanupAgentCmd(a)
-				}
-			}
+		if a, item := findAgent(); a != nil {
+			m.view = ViewMain
+			return m, m.commentPRCmd(a, item.Details)
+		}
+	case "x":
+		if a, item := findAgent(); a != nil {
+			m.view = ViewMain
+			m.cleaningUp = true
+			m.cleaningUpAgent = a.ID
+			return m, m.rejectPRCmd(a, item.Details)
 		}
 	case "b":
 		if m.selectedIndex >= 0 && m.selectedIndex < len(items) {
@@ -866,6 +887,115 @@ func (m model) cleanupAgentCmd(a *agent.Agent) tea.Cmd {
 		}()
 		return successMsg{fmt.Sprintf("Cleaning up agent %s...", agentID)}
 	}
+}
+
+func (m model) approvePRCmd(a *agent.Agent, prURL string) tea.Cmd {
+	agentID := a.ID
+	return func() tea.Msg {
+		approveCmd := exec.Command("gh", "pr", "review", prURL, "--approve", "--body", "Approved via ccmux")
+		if output, err := approveCmd.CombinedOutput(); err != nil {
+			return errMsg{fmt.Errorf("approve failed: %s: %w", string(output), err)}
+		}
+
+		mergeCmd := exec.Command("gh", "pr", "merge", prURL, "--merge", "--delete-branch")
+		if output, err := mergeCmd.CombinedOutput(); err != nil {
+			return errMsg{fmt.Errorf("merge failed: %s: %w", string(output), err)}
+		}
+
+		go func() {
+			exePath, _ := os.Executable()
+			exec.Command(exePath, "cleanup", agentID).Run()
+		}()
+
+		return successMsg{fmt.Sprintf("Approved & merged PR, cleaning up agent %s", agentID)}
+	}
+}
+
+func (m model) commentPRCmd(a *agent.Agent, prURL string) tea.Cmd {
+	agentID := a.ID
+	worktreePath := a.WorktreePath
+	tmuxWindow := a.TmuxWindow
+	return func() tea.Msg {
+		m.agentStore.Update(agentID, func(ag *agent.Agent) {
+			ag.Status = agent.StatusRunning
+		})
+
+		m.queueManager.RemoveByAgent(agentID)
+
+		scriptPath, err := writeReviewScript(agentID, worktreePath, prURL)
+		if err != nil {
+			return errMsg{fmt.Errorf("failed to write review script: %w", err)}
+		}
+
+		if err := m.tmuxManager.RespawnPane(tmuxWindow, "bash "+scriptPath); err != nil {
+			return errMsg{fmt.Errorf("failed to restart agent: %w", err)}
+		}
+
+		return successMsg{fmt.Sprintf("Agent %s resumed to address PR comments", agentID)}
+	}
+}
+
+func (m model) rejectPRCmd(a *agent.Agent, prURL string) tea.Cmd {
+	agentID := a.ID
+	return func() tea.Msg {
+		closeCmd := exec.Command("gh", "pr", "close", prURL, "--delete-branch")
+		if output, err := closeCmd.CombinedOutput(); err != nil {
+			return errMsg{fmt.Errorf("close PR failed: %s: %w", string(output), err)}
+		}
+
+		go func() {
+			exePath, _ := os.Executable()
+			exec.Command(exePath, "cleanup", agentID).Run()
+		}()
+
+		return successMsg{fmt.Sprintf("Rejected PR, cleaning up agent %s", agentID)}
+	}
+}
+
+func writeReviewScript(agentID, worktreePath, prURL string) (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+
+	launcherDir := filepath.Join(homeDir, ".ccmux", "launchers")
+	if err := os.MkdirAll(launcherDir, 0755); err != nil {
+		return "", err
+	}
+
+	scriptPath := filepath.Join(launcherDir, agentID+"-review.sh")
+
+	script := fmt.Sprintf(`#!/bin/bash
+set -e
+
+AGENT_ID="%s"
+
+cd "%s"
+
+BLUE="\033[38;5;63m"
+WHITE="\033[1;97m"
+DIM="\033[38;5;245m"
+RESET="\033[0m"
+echo -e "${BLUE}CC${WHITE}MUX Agent ${DIM}$AGENT_ID${RESET}"
+echo -e "${DIM}Reviewing PR comments...${RESET}"
+echo ""
+
+export CCMUX_AGENT_ID="$AGENT_ID"
+export CLAUDE_CODE_USE_BEDROCK=1
+export AWS_REGION=us-west-2
+unset CLAUDECODE
+
+claude --resume --permission-mode dontAsk \
+  "The GitHub PR at %s has received review comments. Please review the comments with: gh pr view %s --comments, then address all the feedback. Commit and push your changes, and then run: ccmux pr-ready %s"
+
+ccmux agent-stopped "$AGENT_ID"
+`, agentID, worktreePath, prURL, prURL, prURL)
+
+	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
+		return "", err
+	}
+
+	return scriptPath, nil
 }
 
 func (m model) killAgentCmd(a *agent.Agent) tea.Cmd {

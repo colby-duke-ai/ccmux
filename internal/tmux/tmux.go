@@ -97,6 +97,15 @@ func (m *Manager) SendKeys(target, keys string) error {
 	return nil
 }
 
+func (m *Manager) RespawnPane(windowID, command string) error {
+	cmd := exec.Command("tmux", "respawn-pane", "-k", "-t", windowID, command)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to respawn pane: %s: %w", string(output), err)
+	}
+	return nil
+}
+
 func (m *Manager) AttachSession() error {
 	cmd := exec.Command("tmux", "attach-session", "-t", m.sessionName)
 	cmd.Stdin = os.Stdin
