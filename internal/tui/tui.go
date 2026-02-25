@@ -71,6 +71,8 @@ type model struct {
 	// Resource monitoring
 	agentResources map[string]*AgentResources
 	totalMemKB     int64
+	clkTck         int64
+	prevCPUTicks   map[int]int64
 
 	// Download progress
 	downloadProgress *int64
@@ -226,10 +228,11 @@ func (m *model) fuzzyFilterBranches() {
 type tickMsg time.Time
 type spinnerTickMsg time.Time
 type refreshMsg struct {
-	agents     []*agent.Agent
-	queueItems []*queue.QueueItem
-	projects   []*project.Project
-	resources  map[string]*AgentResources
+	agents       []*agent.Agent
+	queueItems   []*queue.QueueItem
+	projects     []*project.Project
+	resources    map[string]*AgentResources
+	prevCPUTicks map[int]int64
 }
 type errMsg struct{ err error }
 type successMsg struct{ msg string }
@@ -299,13 +302,15 @@ func initialModel(agentStore *agent.Store, queueManager *queue.Queue, projectSto
 		branchFilter:     branchFilter,
 		interveneInput:   interveneInput,
 		projectForm:      newProjectForm(),
+		totalMemKB:       getTotalMemoryKB(),
+		clkTck:           getClockTicks(),
+		prevCPUTicks:     make(map[int]int64),
 		downloadProgress: progress,
 		agentStore:       agentStore,
 		queueManager:     queueManager,
 		projectStore:     projectStore,
 		tmuxManager:      tmuxManager,
 		sessionID:        sessionID,
-		totalMemKB:       getTotalMemoryKB(),
 	}
 }
 
@@ -400,9 +405,17 @@ func (m model) refreshCmd() tea.Cmd {
 			queueItems, _ = m.queueManager.List()
 		}
 
-		resources := queryAllAgentResources(agents, m.tmuxManager, m.totalMemKB)
+		resources, newCPUTicks := queryAllAgentResources(
+			agents, m.tmuxManager, m.totalMemKB, m.clkTck, m.prevCPUTicks,
+		)
 
-		return refreshMsg{agents: agents, queueItems: queueItems, projects: projects, resources: resources}
+		return refreshMsg{
+			agents:       agents,
+			queueItems:   queueItems,
+			projects:     projects,
+			resources:    resources,
+			prevCPUTicks: newCPUTicks,
+		}
 	}
 }
 
@@ -476,6 +489,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.queueItems = msg.queueItems
 		m.projects = msg.projects
 		m.agentResources = msg.resources
+		m.prevCPUTicks = msg.prevCPUTicks
 		return m, nil
 
 	case spawnStartedMsg:

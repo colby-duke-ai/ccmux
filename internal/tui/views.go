@@ -718,6 +718,9 @@ func renderAgentSelector(m model, emptyMsg string) string {
 			b.WriteString(fmt.Sprintf("CPU:      %s\n", fmt.Sprintf("%.0f%%", r.CPUPercent)))
 			b.WriteString(fmt.Sprintf("Memory:   %s (%.0f%%)\n", formatBytes(r.MemBytes), r.MemPercent))
 			b.WriteString(fmt.Sprintf("Disk:     %s\n", formatBytes(r.DiskBytes)))
+			if r.TotalTokens > 0 {
+				b.WriteString(fmt.Sprintf("Tokens:   %s\n", formatTokens(r.TotalTokens)))
+			}
 		}
 		b.WriteString("\n")
 	}
