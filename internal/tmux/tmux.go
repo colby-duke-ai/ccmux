@@ -136,6 +136,19 @@ func (m *Manager) GetWindowActivity(windowID string) (time.Time, error) {
 	return time.Unix(epoch, 0), nil
 }
 
+func (m *Manager) GetPanePID(windowID string) (int, error) {
+	cmd := exec.Command("tmux", "display-message", "-t", windowID, "-p", "#{pane_pid}")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get pane pid: %s: %w", string(output), err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(output)))
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse pane pid: %w", err)
+	}
+	return pid, nil
+}
+
 func (m *Manager) RenameWindow(windowID, name string) error {
 	cmd := exec.Command("tmux", "rename-window", "-t", windowID, name)
 	cmd.Run()
