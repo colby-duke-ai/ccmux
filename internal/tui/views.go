@@ -31,7 +31,7 @@ const (
 	ViewAddProjectPath
 	ViewConfirmRemoveProject
 	ViewConfirmKillSession
-	ViewJumpToAgent
+	ViewAgentInfo
 	ViewUpdate
 	ViewHelp
 )
@@ -767,14 +767,14 @@ func styledSpinner(frame int, style lipgloss.Style) string {
 	return style.Render(spinnerFrames[frame%SpinnerFrameCount])
 }
 
-func renderJumpToAgentView(m model) string {
+func renderAgentInfoView(m model) string {
 	var b strings.Builder
 
-	b.WriteString(titleStyle.Render("# Jump to Agent"))
+	b.WriteString(titleStyle.Render("# Info on Agent"))
 	b.WriteString("\n\n")
 	b.WriteString(renderAgentSelector(m, "No agents running"))
 
-	help := helpFooter(ViewJumpToAgent)
+	help := helpFooter(ViewAgentInfo)
 	b.WriteString(renderFooter(help, m.ctrlCPressed))
 
 	return b.String()

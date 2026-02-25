@@ -651,8 +651,8 @@ func (m model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleConfirmRemoveProjectKeys(msg)
 	case ViewConfirmKillSession:
 		return m.handleConfirmKillSessionKeys(msg)
-	case ViewJumpToAgent:
-		return m.handleJumpToAgentKeys(msg)
+	case ViewAgentInfo:
+		return m.handleAgentInfoKeys(msg)
 	case ViewUpdate:
 		return m.handleUpdateKeys(msg)
 	case ViewHelp:
@@ -691,8 +691,8 @@ func (m model) handleMainKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "k":
 		m.view = ViewConfirmKill
 		m.selectedIndex = 0
-	case "j":
-		m.view = ViewJumpToAgent
+	case "i":
+		m.view = ViewAgentInfo
 		m.selectedIndex = 0
 	case "K":
 		m.view = ViewConfirmKillSession
@@ -1086,7 +1086,7 @@ func (m model) handleConfirmKillSessionKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 	return m, nil
 }
 
-func (m model) handleJumpToAgentKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m model) handleAgentInfoKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.view = ViewMain
@@ -1094,11 +1094,11 @@ func (m model) handleJumpToAgentKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.selectedIndex > 0 {
 			m.selectedIndex--
 		}
-	case "down", "j":
+	case "down":
 		if m.selectedIndex < len(m.agents)-1 {
 			m.selectedIndex++
 		}
-	case "enter":
+	case "j":
 		if m.selectedIndex >= 0 && m.selectedIndex < len(m.agents) {
 			selected := m.agents[m.selectedIndex]
 			m.view = ViewMain
@@ -1471,8 +1471,8 @@ func (m model) View() string {
 		content = renderConfirmRemoveProjectView(m)
 	case ViewConfirmKillSession:
 		content = renderConfirmKillSessionView(m)
-	case ViewJumpToAgent:
-		content = renderJumpToAgentView(m)
+	case ViewAgentInfo:
+		content = renderAgentInfoView(m)
 	case ViewUpdate:
 		content = renderUpdateView(m)
 	case ViewHelp:
