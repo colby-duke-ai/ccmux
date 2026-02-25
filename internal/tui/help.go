@@ -38,7 +38,7 @@ var viewTitles = map[ViewState]string{
 	ViewAddProjectPath:       "Add Project (Path)",
 	ViewConfirmRemoveProject: "Remove Project",
 	ViewConfirmKillSession:   "Kill Session",
-	ViewJumpToAgent:          "Jump to Agent",
+	ViewAgentInfo:            "Info on Agent",
 	ViewUpdate:               "Update",
 }
 
@@ -46,7 +46,7 @@ var viewHelpCommands = map[ViewState][]helpCommand{
 	ViewMain: {
 		{FooterText: "[q]uick action", Description: "Pop and act on the next quick action in the queue (e.g. PR review)"},
 		{FooterText: "[n]ew task", Description: "Spawn a new Claude agent"},
-		{FooterText: "[j]ump to agent", Description: "Switch to an agent's tmux window"},
+		{FooterText: "[i]nfo on agent", Description: "View agent details and jump to its tmux window"},
 		{FooterText: "[k]ill agent", Description: "Terminate a running agent"},
 		{FooterText: "[p]rojects", Description: "Manage registered projects"},
 		{FooterText: "[K]ill session", Description: "Kill all agents and the tmux session"},
@@ -119,9 +119,9 @@ var viewHelpCommands = map[ViewState][]helpCommand{
 		{FooterText: "[y]es, kill everything", Description: "Kill all agents and the tmux session"},
 		{FooterText: "[n]o", Description: "Cancel and go back"},
 	},
-	ViewJumpToAgent: {
-		{FooterText: "[↑/↓/j/k] select", Description: "Navigate the agent list"},
-		{FooterText: "[enter] jump", Description: "Jump to the selected agent's window"},
+	ViewAgentInfo: {
+		{FooterText: "[↑/↓/k] select", Description: "Navigate the agent list"},
+		{FooterText: "[j]ump to agent", Description: "Jump to the selected agent's window"},
 		{FooterText: "[esc] back", Description: "Return to main view"},
 	},
 	ViewUpdate: {
