@@ -38,52 +38,14 @@ mv ccmux /usr/local/bin/  # or ~/bin/, ~/.local/bin/, etc.
 
 ## Quick Start
 
-### 1. Start a session
+1. **Start a session:** `ccmux` (or `ccmux <name>` for a named session).
 
-```bash
-ccmux              # start or attach to the "default" session
-ccmux my-project   # start or attach to a named session
-```
+2. **Register a project:** Press `p` to open project management, then `a` to add a git repository.
 
-Sessions are backed by tmux. Detach with `Ctrl+C Ctrl+C` and reattach later — all agents keep running.
+3. **Spawn an agent:** Press `n`, select a project and base branch, describe the task. ccmux creates a worktree and launches Claude Code.
 
-### 2. Register a project
+4. **Monitor and work the queue:** As agents work, items appear in the quick action queue. Press `q` to pop the top item and take action:
 
-Before spawning agents you need to tell ccmux where your code lives.
-
-1. Press **`p`** to open the project manager.
-2. Press **`a`** to add a new project.
-3. Enter a short name (e.g. `backend`) and the absolute path to the git repo.
-
-Projects are stored globally in `~/.ccmux/projects.json` and shared across sessions.
-
-### 3. Create a new task
-
-1. Press **`n`** from the dashboard.
-2. Select the project the task belongs to.
-3. Pick a base branch (defaults to `origin/master` — search/filter to find others).
-4. Describe what you want done. Multi-line input is supported with `Shift+Enter`.
-
-ccmux creates an isolated git worktree and branch (`ccmux/<agent-id>`), opens a new tmux window, and launches Claude Code with your task. The agent shows up on the dashboard with a **running** spinner.
-
-### 4. Work the queue
-
-As agents work, items land in the **quick action queue** on the dashboard. Press **`q`** to pop the top item and take action. There are three kinds of queue items:
-
-| Icon | Type | What happened | What you do |
-|------|------|---------------|-------------|
-| 💤 | **Idle** | Agent's terminal has been inactive for >10 s — it may be stuck or waiting for input. | Press `Enter` to jump into the agent's tmux window and see what's going on. You can also type a message to send directly to the agent's terminal. |
-| ❓ | **Question** | Agent explicitly asked for help (via `ccmux need-help`). | Read the question in the details pane, jump to the agent, and respond. |
-| 🔀 | **PR Ready** | Agent finished its task, pushed a branch, and opened a pull request. | Review the PR, then: **`a`**ccept (merge + cleanup), **`c`**omment (resume the agent to address feedback), **`r`**eject (close PR + cleanup), or **`b`**rowser (open the PR URL). |
-
-### 5. Other dashboard actions
-
-| Key | Action |
-|-----|--------|
-| `n` | Spawn a new agent task |
-| `q` | Quick-action the top queue item |
-| `j` | Jump to a specific agent's tmux window |
-| `k` | Kill (terminate) a single agent |
-| `K` | Kill the entire session and all agents |
-| `p` | Manage registered projects |
-| `u` | Check for ccmux updates |
+   - 💤 **Idle** — agent's terminal has gone quiet (may be stuck). Jump in to check on it or send it a message.
+   - ❓ **Question** — agent explicitly asked for help. Read the details and respond.
+   - 🔀 **PR Ready** — agent opened a pull request. **`a`**ccept (merge + cleanup), **`c`**omment (resume agent to address feedback), **`r`**eject (close PR + cleanup), or **`b`**rowser (open in browser).
