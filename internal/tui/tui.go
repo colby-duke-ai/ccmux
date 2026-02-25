@@ -334,9 +334,12 @@ func (m model) refreshCmd() tea.Cmd {
 		queueItems, _ := m.queueManager.List()
 
 		idleItemByAgent := make(map[string]*queue.QueueItem)
+		prReadyByAgent := make(map[string]bool)
 		for _, item := range queueItems {
 			if item.Type == queue.ItemTypeIdle {
 				idleItemByAgent[item.AgentID] = item
+			} else if item.Type == queue.ItemTypePRReady {
+				prReadyByAgent[item.AgentID] = true
 			}
 		}
 
@@ -363,6 +366,9 @@ func (m model) refreshCmd() tea.Cmd {
 					changed = true
 				}
 			} else if a.Status == agent.StatusReady {
+				if prReadyByAgent[a.ID] {
+					continue
+				}
 				if now.Sub(a.UpdatedAt) < readyGracePeriod {
 					continue
 				}
