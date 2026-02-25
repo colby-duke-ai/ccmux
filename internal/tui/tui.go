@@ -1234,6 +1234,7 @@ func (m model) cleanupAgentCmd(a *agent.Agent) tea.Cmd {
 	m.agentStore.Update(agentID, func(ag *agent.Agent) {
 		ag.Status = agent.StatusCleaningUp
 	})
+	m.queueManager.RemoveByAgent(agentID)
 	return func() tea.Msg {
 		go func() {
 			exePath, _ := os.Executable()
@@ -1362,6 +1363,7 @@ func (m model) killAgentCmd(a *agent.Agent) tea.Cmd {
 	m.agentStore.Update(agentID, func(ag *agent.Agent) {
 		ag.Status = agent.StatusKilling
 	})
+	m.queueManager.RemoveByAgent(agentID)
 	return func() tea.Msg {
 		exePath, err := os.Executable()
 		if err != nil {
