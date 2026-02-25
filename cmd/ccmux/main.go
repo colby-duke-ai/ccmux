@@ -10,8 +10,11 @@ import (
 	"strings"
 	"syscall"
 
+	"context"
+
 	"github.com/CDFalcon/ccmux/internal/agent"
 	"github.com/CDFalcon/ccmux/internal/logging"
+	"github.com/CDFalcon/ccmux/internal/otel"
 	"github.com/CDFalcon/ccmux/internal/project"
 	"github.com/CDFalcon/ccmux/internal/queue"
 	"github.com/CDFalcon/ccmux/internal/tmux"
@@ -172,7 +175,15 @@ func runSession(sessionID string) error {
 		return err
 	}
 
-	restart, err := tui.Run(agentStore, queueManager, projectStore, tmuxManager, sessionID)
+	otelReceiver := otel.NewReceiver()
+	otelPort, err := otelReceiver.Start()
+	if err != nil {
+		return fmt.Errorf("failed to start OTel receiver: %w", err)
+	}
+	defer otelReceiver.Stop(context.Background())
+	os.Setenv("CCMUX_OTEL_PORT", fmt.Sprintf("%d", otelPort))
+
+	restart, err := tui.Run(agentStore, queueManager, projectStore, tmuxManager, sessionID, otelReceiver, otelPort)
 	if err != nil {
 		return err
 	}
@@ -222,7 +233,8 @@ func spawnCmd() *cobra.Command {
 			tmuxSessionName := fmt.Sprintf("ccmux-%s", sessionID)
 			tmuxManager := tmux.NewManager(tmuxSessionName)
 
-			launcherScript, err := writeLauncherScript(agentID, task, proj.Path, baseBranch, sessionID)
+			otelPort := os.Getenv("CCMUX_OTEL_PORT")
+		launcherScript, err := writeLauncherScript(agentID, task, proj.Path, baseBranch, sessionID, otelPort)
 			if err != nil {
 				return fmt.Errorf("failed to create launcher script: %w", err)
 			}
@@ -261,7 +273,7 @@ func spawnCmd() *cobra.Command {
 	return cmd
 }
 
-func writeLauncherScript(agentID, task, repoPath, baseBranch, sessionID string) (string, error) {
+func writeLauncherScript(agentID, task, repoPath, baseBranch, sessionID, otelPort string) (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
@@ -380,6 +392,15 @@ export CLAUDE_CODE_USE_BEDROCK=1
 export AWS_REGION=us-west-2
 unset CLAUDECODE
 
+OTEL_PORT="%s"
+if [ -n "$OTEL_PORT" ] && [ "$OTEL_PORT" != "0" ]; then
+  export CLAUDE_CODE_ENABLE_TELEMETRY=1
+  export OTEL_METRICS_EXPORTER=otlp
+  export OTEL_EXPORTER_OTLP_PROTOCOL=http/json
+  export OTEL_EXPORTER_OTLP_ENDPOINT="http://127.0.0.1:$OTEL_PORT"
+  export OTEL_RESOURCE_ATTRIBUTES="ccmux.agent_id=$AGENT_ID"
+fi
+
 PR_BASE_BRANCH="${BASE_BRANCH#origin/}"
 
 SYSTEM_PROMPT="You are working on a task as part of the ccmux agent system. Environment variable CCMUX_AGENT_ID=$AGENT_ID is set for hook integration.
@@ -400,7 +421,7 @@ claude --dangerously-skip-permissions --system-prompt "$SYSTEM_PROMPT" \
   "$TASK"
 
 ccmux agent-stopped "$AGENT_ID"
-`, agentID, task, repoPath, baseBranch, sessionID)
+`, agentID, task, repoPath, baseBranch, sessionID, otelPort)
 
 	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
 		return "", err
@@ -778,7 +799,7 @@ func recoverOrphanedAgents(sessionID string, tmuxManager *tmux.Manager, homeDir 
 			toCleanup = append(toCleanup, a)
 
 		case (a.Status == agent.StatusRunning || a.Status == agent.StatusSpawning) && worktreeExists:
-			scriptPath, err := writeRecoveryScript(a.ID, a.WorktreePath, a.BaseBranch, sessionID)
+			scriptPath, err := writeRecoveryScript(a.ID, a.WorktreePath, a.BaseBranch, sessionID, "0")
 			if err != nil {
 				logging.Log("recovery: failed to write recovery script for %s: %v", a.ID, err)
 				continue
@@ -878,7 +899,7 @@ func dirExists(path string) bool {
 	return err == nil && info.IsDir()
 }
 
-func writeRecoveryScript(agentID, worktreePath, baseBranch, sessionID string) (string, error) {
+func writeRecoveryScript(agentID, worktreePath, baseBranch, sessionID, otelPort string) (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
@@ -962,6 +983,15 @@ export CLAUDE_CODE_USE_BEDROCK=1
 export AWS_REGION=us-west-2
 unset CLAUDECODE
 
+OTEL_PORT="%s"
+if [ -n "$OTEL_PORT" ] && [ "$OTEL_PORT" != "0" ]; then
+  export CLAUDE_CODE_ENABLE_TELEMETRY=1
+  export OTEL_METRICS_EXPORTER=otlp
+  export OTEL_EXPORTER_OTLP_PROTOCOL=http/json
+  export OTEL_EXPORTER_OTLP_ENDPOINT="http://127.0.0.1:$OTEL_PORT"
+  export OTEL_RESOURCE_ATTRIBUTES="ccmux.agent_id=$AGENT_ID"
+fi
+
 echo -e "${DIM}Starting Claude Code (--continue)...${RESET}"
 echo ""
 
@@ -986,7 +1016,7 @@ fi
 claude --continue --dangerously-skip-permissions --system-prompt "$SYSTEM_PROMPT"
 
 ccmux agent-stopped "$AGENT_ID"
-`, agentID, worktreePath, baseBranch, sessionID)
+`, agentID, worktreePath, baseBranch, sessionID, otelPort)
 
 	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
 		return "", err
