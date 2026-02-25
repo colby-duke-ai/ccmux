@@ -24,8 +24,9 @@ import (
 )
 
 type model struct {
-	view          ViewState
-	agents        []*agent.Agent
+	view         ViewState
+	previousView ViewState
+	agents       []*agent.Agent
 	queueItems    []*queue.QueueItem
 	projects      []*project.Project
 	selectedIndex int
@@ -569,6 +570,12 @@ func (m model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.ctrlCPressed = false
 	}
 
+	if msg.String() == "h" && !isInputView(m.view) && m.view != ViewHelp {
+		m.previousView = m.view
+		m.view = ViewHelp
+		return m, nil
+	}
+
 	switch m.view {
 	case ViewMain:
 		return m.handleMainKeys(msg)
@@ -604,6 +611,8 @@ func (m model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleJumpToAgentKeys(msg)
 	case ViewUpdate:
 		return m.handleUpdateKeys(msg)
+	case ViewHelp:
+		return m.handleHelpKeys(msg)
 	}
 	return m, nil
 }
@@ -1116,6 +1125,14 @@ func (m model) handleInterveneInputKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+func (m model) handleHelpKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.view = m.previousView
+	}
+	return m, nil
+}
+
 func (m model) updateWindowNames() {
 	for _, a := range m.agents {
 		if a.TmuxWindow == "" {
@@ -1409,6 +1426,8 @@ func (m model) View() string {
 		content = renderJumpToAgentView(m)
 	case ViewUpdate:
 		content = renderUpdateView(m)
+	case ViewHelp:
+		content = renderHelpView(m)
 	default:
 		content = renderMainView(m)
 	}
