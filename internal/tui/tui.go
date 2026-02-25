@@ -230,6 +230,7 @@ type successMsg struct{ msg string }
 type clearMessageMsg struct{}
 type clearCtrlCMsg struct{}
 type spawnStartedMsg struct{}
+type updateCheckTickMsg struct{}
 type updateCheckResultMsg struct {
 	version   string
 	available bool
@@ -307,6 +308,7 @@ func (m model) Init() tea.Cmd {
 		spinnerTickCmd(),
 		m.refreshCmd(),
 		checkForUpdateCmd(),
+		updateCheckTickCmd(),
 	)
 }
 
@@ -408,6 +410,12 @@ func checkForUpdateCmd() tea.Cmd {
 	}
 }
 
+func updateCheckTickCmd() tea.Cmd {
+	return tea.Tick(5*time.Minute, func(t time.Time) tea.Msg {
+		return updateCheckTickMsg{}
+	})
+}
+
 func fetchChangelogCmd(currentVersion, latestVersion string) tea.Cmd {
 	return func() tea.Msg {
 		entries, err := updater.FetchChangelog(currentVersion, latestVersion)
@@ -456,6 +464,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case spawnStartedMsg:
 		return m, nil
+
+	case updateCheckTickMsg:
+		if !m.updateChecking && !m.updateDownloading {
+			m.updateChecking = true
+			return m, tea.Batch(checkForUpdateCmd(), updateCheckTickCmd())
+		}
+		return m, updateCheckTickCmd()
 
 	case updateCheckResultMsg:
 		m.updateChecking = false
