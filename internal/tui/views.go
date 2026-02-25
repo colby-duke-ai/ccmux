@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/CDFalcon/ccmux/internal/agent"
+	"github.com/CDFalcon/ccmux/internal/otel"
 	"github.com/CDFalcon/ccmux/internal/queue"
 	"github.com/CDFalcon/ccmux/internal/updater"
 	"github.com/CDFalcon/ccmux/internal/version"
@@ -94,38 +95,35 @@ func renderMainView(m model) string {
 		b.WriteString("\n")
 	} else {
 		for _, a := range m.agents {
-			resStr := ""
-			if r, ok := m.agentResources[a.ID]; ok {
-				resStr = "  " + dimStyle.Render(formatResourceLine(r))
-			}
+			statsStr := formatAgentOneLiner(m.agentResources[a.ID], m.agentMetrics[a.ID])
 
 			if a.Status == agent.StatusCleaningUp {
 				spin := styledSpinner(m.spinnerFrame, agentCleaningUpStyle)
 				status := agentCleaningUpStyle.Render("cleaning up")
-				line := fmt.Sprintf("  %s %s: %s [%s]%s", spin, a.ID, marquee(a.Task, MaxTaskDisplayLen, m.marqueeOffset), status, resStr)
+				line := fmt.Sprintf("  %s %s: %s [%s]%s", spin, a.ID, marquee(a.Task, MaxTaskDisplayLen, m.marqueeOffset), status, statsStr)
 				b.WriteString(line)
 				b.WriteString("\n")
 			} else if a.Status == agent.StatusKilling {
 				spin := styledSpinner(m.spinnerFrame, agentKillingStyle)
 				status := agentKillingStyle.Render("killing")
-				line := fmt.Sprintf("  %s %s: %s [%s]%s", spin, a.ID, marquee(a.Task, MaxTaskDisplayLen, m.marqueeOffset), status, resStr)
+				line := fmt.Sprintf("  %s %s: %s [%s]%s", spin, a.ID, marquee(a.Task, MaxTaskDisplayLen, m.marqueeOffset), status, statsStr)
 				b.WriteString(line)
 				b.WriteString("\n")
 			} else if a.Status == agent.StatusSpawning {
 				spin := styledSpinner(m.spinnerFrame, agentSpawningStyle)
 				status := agentSpawningStyle.Render("spawning")
-				line := fmt.Sprintf("  %s %s: %s [%s]%s", spin, a.ID, marquee(a.Task, MaxTaskDisplayLen, m.marqueeOffset), status, resStr)
+				line := fmt.Sprintf("  %s %s: %s [%s]%s", spin, a.ID, marquee(a.Task, MaxTaskDisplayLen, m.marqueeOffset), status, statsStr)
 				b.WriteString(line)
 				b.WriteString("\n")
 			} else if a.Status == agent.StatusRunning {
 				spin := styledSpinner(m.spinnerFrame, agentRunningStyle)
 				status := agentRunningStyle.Render("running")
-				line := fmt.Sprintf("  %s %s: %s [%s]%s", spin, a.ID, marquee(a.Task, MaxTaskDisplayLen, m.marqueeOffset), status, resStr)
+				line := fmt.Sprintf("  %s %s: %s [%s]%s", spin, a.ID, marquee(a.Task, MaxTaskDisplayLen, m.marqueeOffset), status, statsStr)
 				b.WriteString(line)
 				b.WriteString("\n")
 			} else {
 				status := renderAgentStatus(a.Status)
-				line := fmt.Sprintf("  - %s: %s [%s]%s", a.ID, truncate(a.Task, MaxTaskDisplayLen), status, resStr)
+				line := fmt.Sprintf("  - %s: %s [%s]%s", a.ID, truncate(a.Task, MaxTaskDisplayLen), status, statsStr)
 				b.WriteString(line)
 				b.WriteString("\n")
 			}
@@ -719,10 +717,38 @@ func renderAgentSelector(m model, emptyMsg string) string {
 			b.WriteString(fmt.Sprintf("Memory:   %s (%.0f%%)\n", formatBytes(r.MemBytes), r.MemPercent))
 			b.WriteString(fmt.Sprintf("Disk:     %s\n", formatBytes(r.DiskBytes)))
 		}
+		if am, ok := m.agentMetrics[selected.ID]; ok {
+			cost, tokens, activeTime := otel.FormatMetricsDetail(am)
+			if cost != "" {
+				b.WriteString(fmt.Sprintf("Cost:     %s\n", cost))
+			}
+			if tokens != "" {
+				b.WriteString(fmt.Sprintf("Tokens:   %s\n", tokens))
+			}
+			if activeTime != "" {
+				b.WriteString(fmt.Sprintf("Active:   %s\n", activeTime))
+			}
+		}
 		b.WriteString("\n")
 	}
 
 	return b.String()
+}
+
+func formatAgentOneLiner(r *AgentResources, am *otel.AgentMetrics) string {
+	var parts []string
+	resLine := formatResourceLine(r)
+	if resLine != "" {
+		parts = append(parts, resLine)
+	}
+	costLine := otel.FormatCostLine(am)
+	if costLine != "" {
+		parts = append(parts, costLine)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "  " + dimStyle.Render(strings.Join(parts, "  "))
 }
 
 func marquee(s string, maxWidth int, offset int) string {
