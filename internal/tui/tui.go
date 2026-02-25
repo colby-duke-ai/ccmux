@@ -67,6 +67,10 @@ type model struct {
 	spinnerFrame  int
 	marqueeOffset int
 
+	// Resource monitoring
+	agentResources map[string]*AgentResources
+	totalMemKB     int64
+
 	// Download progress
 	downloadProgress *int64
 	restartRequested bool
@@ -224,6 +228,7 @@ type refreshMsg struct {
 	agents     []*agent.Agent
 	queueItems []*queue.QueueItem
 	projects   []*project.Project
+	resources  map[string]*AgentResources
 }
 type errMsg struct{ err error }
 type successMsg struct{ msg string }
@@ -298,6 +303,7 @@ func initialModel(agentStore *agent.Store, queueManager *queue.Queue, projectSto
 		projectStore:     projectStore,
 		tmuxManager:      tmuxManager,
 		sessionID:        sessionID,
+		totalMemKB:       getTotalMemoryKB(),
 	}
 }
 
@@ -385,7 +391,9 @@ func (m model) refreshCmd() tea.Cmd {
 			queueItems, _ = m.queueManager.List()
 		}
 
-		return refreshMsg{agents: agents, queueItems: queueItems, projects: projects}
+		resources := queryAllAgentResources(agents, m.tmuxManager, m.totalMemKB)
+
+		return refreshMsg{agents: agents, queueItems: queueItems, projects: projects, resources: resources}
 	}
 }
 
@@ -452,6 +460,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.agents = msg.agents
 		m.queueItems = msg.queueItems
 		m.projects = msg.projects
+		m.agentResources = msg.resources
 		return m, nil
 
 	case spawnStartedMsg:

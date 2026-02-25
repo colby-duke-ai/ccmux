@@ -94,33 +94,38 @@ func renderMainView(m model) string {
 		b.WriteString("\n")
 	} else {
 		for _, a := range m.agents {
+			resStr := ""
+			if r, ok := m.agentResources[a.ID]; ok {
+				resStr = "  " + dimStyle.Render(formatResourceLine(r))
+			}
+
 			if a.Status == agent.StatusCleaningUp {
 				spin := styledSpinner(m.spinnerFrame, agentCleaningUpStyle)
 				status := agentCleaningUpStyle.Render("cleaning up")
-				line := fmt.Sprintf("  %s %s: %s [%s]", spin, a.ID, marquee(a.Task, MaxTaskDisplayLen, m.marqueeOffset), status)
+				line := fmt.Sprintf("  %s %s: %s [%s]%s", spin, a.ID, marquee(a.Task, MaxTaskDisplayLen, m.marqueeOffset), status, resStr)
 				b.WriteString(line)
 				b.WriteString("\n")
 			} else if a.Status == agent.StatusKilling {
 				spin := styledSpinner(m.spinnerFrame, agentKillingStyle)
 				status := agentKillingStyle.Render("killing")
-				line := fmt.Sprintf("  %s %s: %s [%s]", spin, a.ID, marquee(a.Task, MaxTaskDisplayLen, m.marqueeOffset), status)
+				line := fmt.Sprintf("  %s %s: %s [%s]%s", spin, a.ID, marquee(a.Task, MaxTaskDisplayLen, m.marqueeOffset), status, resStr)
 				b.WriteString(line)
 				b.WriteString("\n")
 			} else if a.Status == agent.StatusSpawning {
 				spin := styledSpinner(m.spinnerFrame, agentSpawningStyle)
 				status := agentSpawningStyle.Render("spawning")
-				line := fmt.Sprintf("  %s %s: %s [%s]", spin, a.ID, marquee(a.Task, MaxTaskDisplayLen, m.marqueeOffset), status)
+				line := fmt.Sprintf("  %s %s: %s [%s]%s", spin, a.ID, marquee(a.Task, MaxTaskDisplayLen, m.marqueeOffset), status, resStr)
 				b.WriteString(line)
 				b.WriteString("\n")
 			} else if a.Status == agent.StatusRunning {
 				spin := styledSpinner(m.spinnerFrame, agentRunningStyle)
 				status := agentRunningStyle.Render("running")
-				line := fmt.Sprintf("  %s %s: %s [%s]", spin, a.ID, marquee(a.Task, MaxTaskDisplayLen, m.marqueeOffset), status)
+				line := fmt.Sprintf("  %s %s: %s [%s]%s", spin, a.ID, marquee(a.Task, MaxTaskDisplayLen, m.marqueeOffset), status, resStr)
 				b.WriteString(line)
 				b.WriteString("\n")
 			} else {
 				status := renderAgentStatus(a.Status)
-				line := fmt.Sprintf("  - %s: %s [%s]", a.ID, truncate(a.Task, MaxTaskDisplayLen), status)
+				line := fmt.Sprintf("  - %s: %s [%s]%s", a.ID, truncate(a.Task, MaxTaskDisplayLen), status, resStr)
 				b.WriteString(line)
 				b.WriteString("\n")
 			}
@@ -709,6 +714,11 @@ func renderAgentSelector(m model, emptyMsg string) string {
 		b.WriteString(fmt.Sprintf("Task:     %s\n", wrapText(selected.Task, 60)))
 		b.WriteString(fmt.Sprintf("Branch:   %s\n", dimStyle.Render(selected.BranchName)))
 		b.WriteString(fmt.Sprintf("Worktree: %s\n", dimStyle.Render(selected.WorktreePath)))
+		if r, ok := m.agentResources[selected.ID]; ok {
+			b.WriteString(fmt.Sprintf("CPU:      %s\n", fmt.Sprintf("%.0f%%", r.CPUPercent)))
+			b.WriteString(fmt.Sprintf("Memory:   %s (%.0f%%)\n", formatBytes(r.MemBytes), r.MemPercent))
+			b.WriteString(fmt.Sprintf("Disk:     %s\n", formatBytes(r.DiskBytes)))
+		}
 		b.WriteString("\n")
 	}
 
