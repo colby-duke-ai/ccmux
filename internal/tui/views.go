@@ -205,7 +205,7 @@ func renderNewTaskBranchView(m model) string {
 		b.WriteString("\n")
 	}
 
-	b.WriteString("Search: ")
+	b.WriteString("Search:\n")
 	b.WriteString(inputStyle.Render(m.branchFilter.View()))
 	b.WriteString("\n\n")
 
