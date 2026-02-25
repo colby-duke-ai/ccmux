@@ -252,7 +252,7 @@ func renderNewTaskBranchInputView(m model) string {
 		b.WriteString("\n")
 	}
 
-	b.WriteString("Search branches:\n")
+	b.WriteString("Search branches:\n\n")
 	b.WriteString(inputStyle.Render(m.branchInput.View()))
 	b.WriteString("\n\n")
 
