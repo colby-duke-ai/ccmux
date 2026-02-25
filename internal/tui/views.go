@@ -47,14 +47,12 @@ const (
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴"}
 
 func renderFooter(help string, ctrlCPressed bool) string {
-	var b strings.Builder
-	b.WriteString(helpStyle.Render(help))
 	if ctrlCPressed {
-		b.WriteString("\n")
-		b.WriteString(dimStyle.Render("  Press Ctrl+C again to detach"))
+		return helpStyle.Render(errorStyle.Render("  Press Ctrl+C again to detach"))
 	}
-	return b.String()
+	return helpStyle.Render(help)
 }
+
 
 func renderLogo() string {
 	c := logoCStyle
