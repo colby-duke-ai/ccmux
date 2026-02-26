@@ -297,6 +297,8 @@ BRANCH_NAME="ccmux/$AGENT_ID"
 
 echo "→ Creating worktree at $WORKTREE_PATH..."
 cd "$REPO_PATH"
+echo "→ Fetching latest from origin..."
+git fetch origin
 git worktree add -b "$BRANCH_NAME" "$WORKTREE_PATH" "$BASE_BRANCH"
 cd "$WORKTREE_PATH"
 echo "✓ Worktree created"
