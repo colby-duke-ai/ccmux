@@ -746,7 +746,7 @@ func formatAgentOneLiner(r *AgentResources, am *otel.AgentMetrics) string {
 	}
 	costLine := otel.FormatCostLine(am)
 	if costLine != "" {
-		parts = append(parts, costLine)
+		parts = append(parts, "Cost: "+costLine)
 	}
 	if len(parts) == 0 {
 		return ""
