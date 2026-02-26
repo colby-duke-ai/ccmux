@@ -288,14 +288,14 @@ type claudeUsage struct {
 	CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
 }
 
-type claudeInnerMessage struct {
+type claudeAPIMessage struct {
 	Model string      `json:"model"`
 	Usage claudeUsage `json:"usage"`
 }
 
 type claudeMessage struct {
-	Type    string             `json:"type"`
-	Message claudeInnerMessage `json:"message"`
+	Type    string           `json:"type"`
+	Message claudeAPIMessage `json:"message"`
 }
 
 type tokenBreakdown struct {
