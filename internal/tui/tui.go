@@ -768,7 +768,7 @@ func (m model) handleNewTaskBranchKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.spawnBranch = entry.value
 			m.view = ViewNewTaskInput
 			m.taskInput.SetValue("")
-			m.taskInput.SetHeight(1)
+			m.taskInput.SetHeight(5)
 			m.selectedIndex = 0
 			m.branchFilter.SetValue("")
 			m.filteredBranches = nil
@@ -799,7 +799,7 @@ func (m model) handleNewTaskBranchInputKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 		m.spawnBranch = branch
 		m.view = ViewNewTaskInput
 		m.taskInput.SetValue("")
-		m.taskInput.SetHeight(1)
+		m.taskInput.SetHeight(5)
 		m.selectedIndex = 0
 		cmd := m.taskInput.Focus()
 		return m, cmd
