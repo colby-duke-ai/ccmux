@@ -91,7 +91,11 @@ func (s *Store) Add(project *Project) error {
 	}
 	project.Path = absPath
 
-	if !isGitRepo(project.Path) {
+	if project.UseFastWorktrees {
+		if !IsProjDirectory(project.Path) {
+			return fmt.Errorf("path is not a proj directory (missing .repo): %s", project.Path)
+		}
+	} else if !isGitRepo(project.Path) {
 		return fmt.Errorf("path is not a git repository: %s", project.Path)
 	}
 
@@ -188,6 +192,63 @@ func isGitRepo(path string) bool {
 	cmd := exec.Command("git", "rev-parse", "--git-dir")
 	cmd.Dir = path
 	return cmd.Run() == nil
+}
+
+func IsProjInstalled() bool {
+	_, err := exec.LookPath("proj")
+	return err == nil
+}
+
+func IsProjDirectory(path string) bool {
+	repoDir := filepath.Join(path, ".repo")
+	info, err := os.Stat(repoDir)
+	if err != nil {
+		return false
+	}
+	return info.IsDir()
+}
+
+func FindProjTemplateDir(projDir string) string {
+	entries, err := os.ReadDir(projDir)
+	if err != nil {
+		return ""
+	}
+	for _, entry := range entries {
+		if entry.IsDir() && strings.HasPrefix(entry.Name(), "00-") {
+			return filepath.Join(projDir, entry.Name())
+		}
+	}
+	return ""
+}
+
+func DetectDefaultBranch(repoPath string) string {
+	for _, branch := range []string{"master", "main"} {
+		cmd := exec.Command("git", "rev-parse", "--verify", branch)
+		cmd.Dir = repoPath
+		if cmd.Run() == nil {
+			return branch
+		}
+	}
+	return "master"
+}
+
+func ProjImport(repoPath string) (string, error) {
+	if !IsProjInstalled() {
+		return "", fmt.Errorf("proj is not installed")
+	}
+	projRoot := os.Getenv("PROJ_ROOT")
+	if projRoot == "" {
+		return "", fmt.Errorf("PROJ_ROOT is not set — see github.com/Applied-Shared/proj for setup")
+	}
+	branch := DetectDefaultBranch(repoPath)
+	repoName := filepath.Base(repoPath)
+	projDir := filepath.Join(projRoot, "projects", repoName)
+	cmd := exec.Command("proj", "import", "--local", repoPath, "--branch", branch)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("proj import failed: %s: %w", strings.TrimSpace(string(output)), err)
+	}
+	return projDir, nil
 }
 
 func GetRepoRoot(path string) (string, error) {

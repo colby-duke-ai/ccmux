@@ -29,6 +29,7 @@ const (
 	ViewManageProjects
 	ViewAddProjectName
 	ViewAddProjectPath
+	ViewAddProjectFastWT
 	ViewConfirmRemoveProject
 	ViewEditProject
 	ViewConfirmKillSession
@@ -164,6 +165,9 @@ func renderMainView(m model) string {
 			extras := dimStyle.Render(p.Path)
 			if p.DefaultBaseBranch != "" {
 				extras += "  " + dimStyle.Render("base:"+p.DefaultBaseBranch)
+			}
+			if p.UseFastWorktrees {
+				extras += "  " + dimStyle.Render("fast-wt")
 			}
 			b.WriteString(fmt.Sprintf("  - %s %s\n", projectStyle.Render(p.Name), extras))
 		}
@@ -469,6 +473,11 @@ func renderManageProjectsView(m model) string {
 			b.WriteString(fmt.Sprintf("  Path:        %s\n", dimStyle.Render(selected.Path)))
 			b.WriteString(fmt.Sprintf("  Base branch: %s\n", dimStyle.Render(selected.EffectiveBaseBranch())))
 			b.WriteString(fmt.Sprintf("  CI wait:     %s\n", dimStyle.Render(fmt.Sprintf("%d min", selected.EffectiveCIWaitMinutes()))))
+			fastWtStatus := "no"
+			if selected.UseFastWorktrees {
+				fastWtStatus = "yes (proj)"
+			}
+			b.WriteString(fmt.Sprintf("  Fast wt:     %s\n", dimStyle.Render(fastWtStatus)))
 			b.WriteString("\n")
 		}
 	}
@@ -482,7 +491,7 @@ func renderManageProjectsView(m model) string {
 func renderAddProjectNameView(m model) string {
 	var b strings.Builder
 
-	b.WriteString(titleStyle.Render("# Add Project - Step 1/2"))
+	b.WriteString(titleStyle.Render("# Add Project - Name"))
 	b.WriteString("\n\n")
 
 	b.WriteString("Enter project name:\n")
@@ -501,7 +510,7 @@ func renderAddProjectNameView(m model) string {
 func renderAddProjectPathView(m model) string {
 	var b strings.Builder
 
-	b.WriteString(titleStyle.Render("# Add Project - Step 2/2"))
+	b.WriteString(titleStyle.Render("# Add Project - Path"))
 	b.WriteString("\n\n")
 
 	b.WriteString(fmt.Sprintf("Project: %s\n\n", projectStyle.Render(m.newProjectName)))
@@ -514,6 +523,22 @@ func renderAddProjectPathView(m model) string {
 	b.WriteString("\n\n")
 
 	help := helpFooter(ViewAddProjectPath)
+	b.WriteString(renderFooter(help, m.ctrlCPressed))
+
+	return b.String()
+}
+
+func renderAddProjectFastWTView(m model) string {
+	var b strings.Builder
+
+	b.WriteString(titleStyle.Render("# Add Project - Fast Worktrees"))
+	b.WriteString("\n\n")
+
+	b.WriteString("Enable fast worktrees? (y/n)\n\n")
+	b.WriteString(dimStyle.Render("Runs 'proj import' to enable near-instant worktree creation."))
+	b.WriteString("\n\n")
+
+	help := helpFooter(ViewAddProjectFastWT)
 	b.WriteString(renderFooter(help, m.ctrlCPressed))
 
 	return b.String()
@@ -536,6 +561,7 @@ func renderEditProjectView(m model) string {
 		{"Path:", m.editProjectForm.pathInput.View()},
 		{"Default base branch:", m.editProjectForm.baseBranchInput.View()},
 		{"CI wait (minutes):", m.editProjectForm.ciWaitInput.View()},
+		{"Fast worktrees (yes/no):", m.editProjectForm.fastWTInput.View()},
 	}
 
 	for i, f := range fields {

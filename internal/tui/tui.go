@@ -108,7 +108,8 @@ type editProjectFormModel struct {
 	pathInput       textinput.Model
 	baseBranchInput textinput.Model
 	ciWaitInput     textinput.Model
-	focusIndex      int // 0=path, 1=baseBranch, 2=ciWait
+	fastWTInput     textinput.Model
+	focusIndex      int // 0=path, 1=baseBranch, 2=ciWait, 3=fastWT
 }
 
 func newProjectForm() projectFormModel {
@@ -158,10 +159,16 @@ func newEditProjectForm() editProjectFormModel {
 	ciWaitInput.Width = 10
 	ciWaitInput.CharLimit = 5
 
+	fastWTInput := textinput.New()
+	fastWTInput.Placeholder = "no"
+	fastWTInput.Width = 10
+	fastWTInput.CharLimit = 5
+
 	return editProjectFormModel{
 		pathInput:       pathInput,
 		baseBranchInput: baseBranchInput,
 		ciWaitInput:     ciWaitInput,
+		fastWTInput:     fastWTInput,
 		focusIndex:      0,
 	}
 }
@@ -170,6 +177,7 @@ func (ef *editProjectFormModel) blurAll() {
 	ef.pathInput.Blur()
 	ef.baseBranchInput.Blur()
 	ef.ciWaitInput.Blur()
+	ef.fastWTInput.Blur()
 }
 
 func (ef *editProjectFormModel) focusCurrent() {
@@ -181,6 +189,8 @@ func (ef *editProjectFormModel) focusCurrent() {
 		ef.baseBranchInput.Focus()
 	case 2:
 		ef.ciWaitInput.Focus()
+	case 3:
+		ef.fastWTInput.Focus()
 	}
 }
 
@@ -191,6 +201,11 @@ func (ef *editProjectFormModel) loadFromProject(p *project.Project) {
 		ef.ciWaitInput.SetValue(fmt.Sprintf("%d", p.CIWaitMinutes))
 	} else {
 		ef.ciWaitInput.SetValue("")
+	}
+	if p.UseFastWorktrees {
+		ef.fastWTInput.SetValue("yes")
+	} else {
+		ef.fastWTInput.SetValue("")
 	}
 	ef.focusIndex = 0
 	ef.focusCurrent()
@@ -684,6 +699,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.editProjectForm.baseBranchInput, cmd = m.editProjectForm.baseBranchInput.Update(msg)
 		case 2:
 			m.editProjectForm.ciWaitInput, cmd = m.editProjectForm.ciWaitInput.Update(msg)
+		case 3:
+			m.editProjectForm.fastWTInput, cmd = m.editProjectForm.fastWTInput.Update(msg)
 		}
 		if cmd != nil {
 			cmds = append(cmds, cmd)
@@ -754,6 +771,8 @@ func (m model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleAddProjectNameKeys(msg)
 	case ViewAddProjectPath:
 		return m.handleAddProjectPathKeys(msg)
+	case ViewAddProjectFastWT:
+		return m.handleAddProjectFastWTKeys(msg)
 	case ViewEditProject:
 		return m.handleEditProjectKeys(msg)
 	case ViewConfirmRemoveProject:
@@ -1134,11 +1153,11 @@ func (m model) handleEditProjectKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.selectedProj = nil
 		return m, nil
 	case "tab":
-		m.editProjectForm.focusIndex = (m.editProjectForm.focusIndex + 1) % 3
+		m.editProjectForm.focusIndex = (m.editProjectForm.focusIndex + 1) % 4
 		m.editProjectForm.focusCurrent()
 		return m, textinput.Blink
 	case "shift+tab":
-		m.editProjectForm.focusIndex = (m.editProjectForm.focusIndex + 2) % 3
+		m.editProjectForm.focusIndex = (m.editProjectForm.focusIndex + 3) % 4
 		m.editProjectForm.focusCurrent()
 		return m, textinput.Blink
 	case "enter":
@@ -1157,11 +1176,13 @@ func (m model) handleEditProjectKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			ciWait = parsed
 		}
+		fastWTStr := strings.ToLower(strings.TrimSpace(m.editProjectForm.fastWTInput.Value()))
+		useFastWT := fastWTStr == "yes" || fastWTStr == "true" || fastWTStr == "y"
 		projName := m.selectedProj.Name
 		m.editProjectForm.blurAll()
 		m.view = ViewManageProjects
 		m.selectedProj = nil
-		return m, m.updateProjectCmd(projName, path, baseBranch, ciWait)
+		return m, m.updateProjectCmd(projName, path, baseBranch, ciWait, useFastWT)
 	}
 
 	var cmd tea.Cmd
@@ -1172,6 +1193,8 @@ func (m model) handleEditProjectKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.editProjectForm.baseBranchInput, cmd = m.editProjectForm.baseBranchInput.Update(msg)
 	case 2:
 		m.editProjectForm.ciWaitInput, cmd = m.editProjectForm.ciWaitInput.Update(msg)
+	case 3:
+		m.editProjectForm.fastWTInput, cmd = m.editProjectForm.fastWTInput.Update(msg)
 	}
 	return m, cmd
 }
@@ -1216,13 +1239,38 @@ func (m model) handleAddProjectPathKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if path == "" {
 			return m, nil
 		}
-		m.view = ViewManageProjects
-		return m, m.addProjectCmd(m.newProjectName, path)
+		m.newProjectPath = path
+		if project.IsProjDirectory(path) && project.IsProjInstalled() {
+			m.view = ViewManageProjects
+			return m, m.addProjectCmd(m.newProjectName, m.newProjectPath, true)
+		}
+		if !project.IsProjInstalled() {
+			m.view = ViewManageProjects
+			return m, m.addProjectCmd(m.newProjectName, m.newProjectPath, false)
+		}
+		m.view = ViewAddProjectFastWT
+		return m, nil
 	}
 
 	var cmd tea.Cmd
 	m.projectForm.pathInput, cmd = m.projectForm.pathInput.Update(msg)
 	return m, cmd
+}
+
+func (m model) handleAddProjectFastWTKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.view = ViewAddProjectPath
+		m.projectForm.pathInput.Focus()
+		return m, textinput.Blink
+	case "y":
+		m.view = ViewManageProjects
+		return m, m.addProjectCmd(m.newProjectName, m.newProjectPath, true)
+	case "n":
+		m.view = ViewManageProjects
+		return m, m.addProjectCmd(m.newProjectName, m.newProjectPath, false)
+	}
+	return m, nil
 }
 
 func (m model) handleConfirmRemoveProjectKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -1391,11 +1439,19 @@ func (m model) detachCmd() tea.Cmd {
 	}
 }
 
-func (m model) addProjectCmd(name, path string) tea.Cmd {
+func (m model) addProjectCmd(name, path string, useFastWT bool) tea.Cmd {
 	return func() tea.Msg {
+		if useFastWT && !project.IsProjDirectory(path) {
+			projDir, err := project.ProjImport(path)
+			if err != nil {
+				return errMsg{err}
+			}
+			path = projDir
+		}
 		p := &project.Project{
-			Name: name,
-			Path: path,
+			Name:             name,
+			Path:             path,
+			UseFastWorktrees: useFastWT,
 		}
 		if err := m.projectStore.Add(p); err != nil {
 			return errMsg{err}
@@ -1404,14 +1460,22 @@ func (m model) addProjectCmd(name, path string) tea.Cmd {
 	}
 }
 
-func (m model) updateProjectCmd(name, path, baseBranch string, ciWait int) tea.Cmd {
+func (m model) updateProjectCmd(name, path, baseBranch string, ciWait int, useFastWT bool) tea.Cmd {
 	return func() tea.Msg {
+		if useFastWT && path != "" && !project.IsProjDirectory(path) {
+			projDir, err := project.ProjImport(path)
+			if err != nil {
+				return errMsg{err}
+			}
+			path = projDir
+		}
 		err := m.projectStore.Update(name, func(p *project.Project) {
 			if path != "" {
 				p.Path = path
 			}
 			p.DefaultBaseBranch = baseBranch
 			p.CIWaitMinutes = ciWait
+			p.UseFastWorktrees = useFastWT
 		})
 		if err != nil {
 			return errMsg{err}
@@ -1722,6 +1786,8 @@ func (m model) View() string {
 		content = renderAddProjectNameView(m)
 	case ViewAddProjectPath:
 		content = renderAddProjectPathView(m)
+	case ViewAddProjectFastWT:
+		content = renderAddProjectFastWTView(m)
 	case ViewEditProject:
 		content = renderEditProjectView(m)
 	case ViewConfirmRemoveProject:
