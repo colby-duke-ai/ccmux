@@ -261,7 +261,7 @@ func ProjImport(repoPath string) (string, error) {
 		combined := strings.TrimSpace(stdout.String() + "\n" + stderr.String())
 		return "", fmt.Errorf("proj import failed: %s: %w", combined, err)
 	}
-	stderrStr := strings.TrimSpace(stderr.String())
+	stderrStr := filterBenignStderr(stderr.String())
 	if stderrStr != "" {
 		return "", fmt.Errorf("proj import had errors:\n%s", stderrStr)
 	}
@@ -269,6 +269,34 @@ func ProjImport(repoPath string) (string, error) {
 		return "", fmt.Errorf("proj import completed but %s is missing .repo directory", projDir)
 	}
 	return projDir, nil
+}
+
+var benignStderrPrefixes = []string{
+	"no crontab for",
+	"Created symlink",
+	"HEAD is now at",
+	"Preparing worktree",
+}
+
+func filterBenignStderr(raw string) string {
+	var significant []string
+	for _, line := range strings.Split(raw, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		benign := false
+		for _, prefix := range benignStderrPrefixes {
+			if strings.HasPrefix(trimmed, prefix) {
+				benign = true
+				break
+			}
+		}
+		if !benign {
+			significant = append(significant, trimmed)
+		}
+	}
+	return strings.Join(significant, "\n")
 }
 
 func GetRepoRoot(path string) (string, error) {
