@@ -289,13 +289,20 @@ type claudeUsage struct {
 }
 
 type claudeAPIMessage struct {
-	Model string      `json:"model"`
-	Usage claudeUsage `json:"usage"`
+	Model      string      `json:"model"`
+	Usage      claudeUsage `json:"usage"`
+	StopReason *string     `json:"stop_reason"`
 }
 
 type claudeMessage struct {
 	Type    string           `json:"type"`
 	Message claudeAPIMessage `json:"message"`
+}
+
+type inputSignature struct {
+	InputTokens              int64
+	CacheReadInputTokens     int64
+	CacheCreationInputTokens int64
 }
 
 type tokenBreakdown struct {
@@ -351,6 +358,28 @@ func getAgentSessionTokens(worktreePath string) tokenBreakdown {
 
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+
+	var prevSig inputSignature
+	var prevModel string
+	var maxOutputTokens int64
+	firstGroup := true
+
+	flushGroup := func() {
+		if firstGroup {
+			return
+		}
+		result.In += prevSig.InputTokens
+		result.Out += maxOutputTokens
+		result.CacheRead += prevSig.CacheReadInputTokens
+		result.CacheCreate += prevSig.CacheCreationInputTokens
+		result.CostUSD += estimateCost(prevModel, claudeUsage{
+			InputTokens:              prevSig.InputTokens,
+			OutputTokens:             maxOutputTokens,
+			CacheCreationInputTokens: prevSig.CacheCreationInputTokens,
+			CacheReadInputTokens:     prevSig.CacheReadInputTokens,
+		})
+	}
+
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		var msg claudeMessage
@@ -360,13 +389,28 @@ func getAgentSessionTokens(worktreePath string) tokenBreakdown {
 		if msg.Type != "assistant" {
 			continue
 		}
+		if msg.Message.Model == "<synthetic>" {
+			continue
+		}
+
 		u := msg.Message.Usage
-		result.In += u.InputTokens
-		result.Out += u.OutputTokens
-		result.CacheRead += u.CacheReadInputTokens
-		result.CacheCreate += u.CacheCreationInputTokens
-		result.CostUSD += estimateCost(msg.Message.Model, u)
+		sig := inputSignature{
+			InputTokens:              u.InputTokens,
+			CacheReadInputTokens:     u.CacheReadInputTokens,
+			CacheCreationInputTokens: u.CacheCreationInputTokens,
+		}
+
+		if sig != prevSig || firstGroup {
+			flushGroup()
+			prevSig = sig
+			prevModel = msg.Message.Model
+			maxOutputTokens = u.OutputTokens
+			firstGroup = false
+		} else if u.OutputTokens > maxOutputTokens {
+			maxOutputTokens = u.OutputTokens
+		}
 	}
+	flushGroup()
 
 	result.Total = result.In + result.Out + result.CacheRead + result.CacheCreate
 	return result
