@@ -259,14 +259,14 @@ func setupSessionDir(t *testing.T, worktreePath string) string {
 	return projectDir
 }
 
-func TestGetAgentSessionTokens_ShouldSumTokens_GivenNestedMessageUsage(t *testing.T) {
+func TestGetAgentSessionTokens_ShouldSumTokens_GivenDistinctAPITurns(t *testing.T) {
 	// Setup.
 	worktreePath := "/tmp/ccmux-test-tokens-" + t.Name()
 	projectDir := setupSessionDir(t, worktreePath)
 
 	jsonl := `{"type":"user","message":{"role":"user","content":"hello"}}
-{"type":"assistant","message":{"role":"assistant","usage":{"input_tokens":100,"output_tokens":50,"cache_creation_input_tokens":200,"cache_read_input_tokens":300}}}
-{"type":"assistant","message":{"role":"assistant","usage":{"input_tokens":80,"output_tokens":40,"cache_creation_input_tokens":0,"cache_read_input_tokens":150}}}
+{"type":"assistant","message":{"role":"assistant","model":"claude-sonnet-4-20250514","usage":{"input_tokens":100,"output_tokens":50,"cache_creation_input_tokens":200,"cache_read_input_tokens":300}}}
+{"type":"assistant","message":{"role":"assistant","model":"claude-sonnet-4-20250514","usage":{"input_tokens":80,"output_tokens":40,"cache_creation_input_tokens":0,"cache_read_input_tokens":150}}}
 `
 	os.WriteFile(filepath.Join(projectDir, "session.jsonl"), []byte(jsonl), 0o644)
 
@@ -289,6 +289,59 @@ func TestGetAgentSessionTokens_ShouldSumTokens_GivenNestedMessageUsage(t *testin
 	}
 	if result.CacheCreate != 200 {
 		t.Errorf("expected CacheCreate 200, got %d", result.CacheCreate)
+	}
+}
+
+func TestGetAgentSessionTokens_ShouldDedup_GivenDuplicateContentBlocks(t *testing.T) {
+	// Setup.
+	worktreePath := "/tmp/ccmux-test-dedup-" + t.Name()
+	projectDir := setupSessionDir(t, worktreePath)
+
+	jsonl := `{"type":"user","message":{"role":"user","content":"hello"}}
+{"type":"assistant","message":{"role":"assistant","model":"claude-sonnet-4-20250514","usage":{"input_tokens":100,"output_tokens":8,"cache_creation_input_tokens":200,"cache_read_input_tokens":300}}}
+{"type":"assistant","message":{"role":"assistant","model":"claude-sonnet-4-20250514","usage":{"input_tokens":100,"output_tokens":50,"cache_creation_input_tokens":200,"cache_read_input_tokens":300}}}
+{"type":"assistant","message":{"role":"assistant","model":"claude-sonnet-4-20250514","usage":{"input_tokens":100,"output_tokens":50,"cache_creation_input_tokens":200,"cache_read_input_tokens":300}}}
+`
+	os.WriteFile(filepath.Join(projectDir, "session.jsonl"), []byte(jsonl), 0o644)
+
+	// Execute.
+	result := getAgentSessionTokens(worktreePath)
+
+	// Assert.
+	if result.In != 100 {
+		t.Errorf("expected In 100 (deduped), got %d", result.In)
+	}
+	if result.Out != 50 {
+		t.Errorf("expected Out 50 (max from group), got %d", result.Out)
+	}
+	if result.CacheRead != 300 {
+		t.Errorf("expected CacheRead 300 (deduped), got %d", result.CacheRead)
+	}
+	if result.CacheCreate != 200 {
+		t.Errorf("expected CacheCreate 200 (deduped), got %d", result.CacheCreate)
+	}
+}
+
+func TestGetAgentSessionTokens_ShouldSkipSyntheticMessages(t *testing.T) {
+	// Setup.
+	worktreePath := "/tmp/ccmux-test-synthetic-" + t.Name()
+	projectDir := setupSessionDir(t, worktreePath)
+
+	jsonl := `{"type":"assistant","message":{"role":"assistant","model":"claude-sonnet-4-20250514","usage":{"input_tokens":100,"output_tokens":50,"cache_creation_input_tokens":0,"cache_read_input_tokens":300}}}
+{"type":"assistant","message":{"role":"assistant","model":"<synthetic>","stop_reason":"stop_sequence","usage":{"input_tokens":0,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+{"type":"assistant","message":{"role":"assistant","model":"claude-sonnet-4-20250514","usage":{"input_tokens":80,"output_tokens":40,"cache_creation_input_tokens":0,"cache_read_input_tokens":200}}}
+`
+	os.WriteFile(filepath.Join(projectDir, "session.jsonl"), []byte(jsonl), 0o644)
+
+	// Execute.
+	result := getAgentSessionTokens(worktreePath)
+
+	// Assert.
+	if result.In != 180 {
+		t.Errorf("expected In 180, got %d", result.In)
+	}
+	if result.Out != 90 {
+		t.Errorf("expected Out 90, got %d", result.Out)
 	}
 }
 
