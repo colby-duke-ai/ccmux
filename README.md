@@ -4,6 +4,8 @@ A terminal-based orchestrator for managing multiple [Claude Code](https://docs.a
 
 Each agent gets its own git worktree, branch, and tmux window — so multiple agents can work on different tasks in the same repo without conflicts.
 
+ccmux is designed to not interfere with users' current Claude Code setups. Spawned agents will respect existing Claude .MD's and additional agent prompting is kept to a minimum.
+
 ## Setup (Linux x86_64)
 ```bash
 # Install system dependencies
