@@ -370,11 +370,13 @@ func TestFindProjTemplateDir_ShouldReturnEmpty_GivenNoTemplate(t *testing.T) {
 	}
 }
 
-func TestUpdate_ShouldToggleFastWorktrees_GivenUpdate(t *testing.T) {
+func TestUpdate_ShouldToggleFastWorktrees_GivenProjDirectory(t *testing.T) {
 	// Setup.
-	store, repoDir, cleanup := setupTestStore(t)
+	store, _, cleanup := setupTestStore(t)
 	defer cleanup()
-	store.Add(&Project{Name: "toggleable", Path: repoDir})
+	projDir := t.TempDir()
+	os.MkdirAll(filepath.Join(projDir, ".repo"), 0755)
+	store.Add(&Project{Name: "toggleable", Path: projDir, UseFastWorktrees: true})
 
 	// Execute.
 	err := store.Update("toggleable", func(p *Project) {
@@ -388,6 +390,41 @@ func TestUpdate_ShouldToggleFastWorktrees_GivenUpdate(t *testing.T) {
 	retrieved, _ := store.Get("toggleable")
 	if !retrieved.UseFastWorktrees {
 		t.Error("expected UseFastWorktrees to be true after update")
+	}
+}
+
+func TestUpdate_ShouldFail_GivenFastWorktreesWithNoProjDir(t *testing.T) {
+	// Setup.
+	store, repoDir, cleanup := setupTestStore(t)
+	defer cleanup()
+	store.Add(&Project{Name: "not-proj", Path: repoDir})
+
+	// Execute.
+	err := store.Update("not-proj", func(p *Project) {
+		p.UseFastWorktrees = true
+	})
+
+	// Assert.
+	if err == nil {
+		t.Error("expected error for missing .repo directory, got nil")
+	}
+}
+
+func TestUpdate_ShouldFail_GivenNonGitRepoPath(t *testing.T) {
+	// Setup.
+	store, repoDir, cleanup := setupTestStore(t)
+	defer cleanup()
+	store.Add(&Project{Name: "will-break", Path: repoDir})
+	badDir := t.TempDir()
+
+	// Execute.
+	err := store.Update("will-break", func(p *Project) {
+		p.Path = badDir
+	})
+
+	// Assert.
+	if err == nil {
+		t.Error("expected error for non-git repo path, got nil")
 	}
 }
 

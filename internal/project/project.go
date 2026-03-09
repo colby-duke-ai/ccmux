@@ -167,6 +167,14 @@ func (s *Store) Update(name string, fn func(p *Project)) error {
 
 	fn(p)
 
+	if p.UseFastWorktrees {
+		if !IsProjDirectory(p.Path) {
+			return fmt.Errorf("path is not a proj directory (missing .repo): %s", p.Path)
+		}
+	} else if !isGitRepo(p.Path) {
+		return fmt.Errorf("path is not a git repository: %s", p.Path)
+	}
+
 	return s.save(data)
 }
 

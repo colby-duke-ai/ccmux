@@ -482,6 +482,11 @@ func renderManageProjectsView(m model) string {
 		}
 	}
 
+	if m.err != nil {
+		b.WriteString(errorStyle.Render(fmt.Sprintf("Error: %s", m.err.Error())))
+		b.WriteString("\n\n")
+	}
+
 	help := helpFooter(ViewManageProjects)
 	b.WriteString(renderFooter(help, m.ctrlCPressed))
 
