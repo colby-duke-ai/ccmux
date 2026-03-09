@@ -482,6 +482,10 @@ func renderManageProjectsView(m model) string {
 		}
 	}
 
+	if m.projImporting {
+		b.WriteString(fmt.Sprintf("%s Importing project (this may take a while)...\n\n", spinner(m.spinnerFrame)))
+	}
+
 	if m.err != nil {
 		b.WriteString(errorStyle.Render(fmt.Sprintf("Error: %s", m.err.Error())))
 		b.WriteString("\n\n")

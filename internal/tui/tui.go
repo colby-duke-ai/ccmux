@@ -53,6 +53,9 @@ type model struct {
 	interveneInput textarea.Model
 	interveneAgent *agent.Agent
 
+	// Project import state
+	projImporting bool
+
 	// Update state
 	updateChecking    bool
 	updateAvailable   bool
@@ -546,7 +549,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(tickCmd(), m.refreshCmd())
 
 	case spinnerTickMsg:
-		shouldAnimate := m.updateChecking || m.updateDownloading || m.changelogLoading
+		shouldAnimate := m.updateChecking || m.updateDownloading || m.changelogLoading || m.projImporting
 		if !shouldAnimate {
 			for _, a := range m.agents {
 				if a.Status == agent.StatusSpawning || a.Status == agent.StatusRunning || a.Status == agent.StatusKilling || a.Status == agent.StatusCleaningUp || a.Status == agent.StatusWaitingCI {
@@ -641,10 +644,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case errMsg:
 		m.err = msg.err
+		m.projImporting = false
 		return m, tea.Batch(clearMessageCmd(), m.refreshCmd())
 
 	case successMsg:
 		m.err = nil
+		m.projImporting = false
 		return m, m.refreshCmd()
 
 	case clearMessageMsg:
@@ -1181,6 +1186,7 @@ func (m model) handleEditProjectKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.editProjectForm.blurAll()
 		m.view = ViewManageProjects
 		m.selectedProj = nil
+		m.projImporting = useFastWT
 		return m, m.updateProjectCmd(projName, path, baseBranch, ciWait, useFastWT)
 	}
 
@@ -1264,6 +1270,7 @@ func (m model) handleAddProjectFastWTKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, textinput.Blink
 	case "y":
 		m.view = ViewManageProjects
+		m.projImporting = true
 		return m, m.addProjectCmd(m.newProjectName, m.newProjectPath, true)
 	case "n":
 		m.view = ViewManageProjects
