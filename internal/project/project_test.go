@@ -459,45 +459,6 @@ func TestDetectDefaultBranch_ShouldReturnMain_GivenMainBranch(t *testing.T) {
 	}
 }
 
-func TestFilterBenignStderr_ShouldReturnEmpty_GivenOnlyBenignLines(t *testing.T) {
-	// Setup.
-	input := "no crontab for colby\nCreated symlink /home/colby/.config/systemd/user/timers.target.wants/git-maintenance@hourly.timer\nHEAD is now at a9a6656 Merge pull request #28\nPreparing worktree (checking out 'master')\n"
-
-	// Execute.
-	result := filterBenignStderr(input)
-
-	// Assert.
-	if result != "" {
-		t.Errorf("expected empty string, got '%s'", result)
-	}
-}
-
-func TestFilterBenignStderr_ShouldReturnErrors_GivenMixedLines(t *testing.T) {
-	// Setup.
-	input := "no crontab for colby\nerror: could not lock config file\nCreated symlink /foo/bar\n"
-
-	// Execute.
-	result := filterBenignStderr(input)
-
-	// Assert.
-	if result != "error: could not lock config file" {
-		t.Errorf("expected 'error: could not lock config file', got '%s'", result)
-	}
-}
-
-func TestFilterBenignStderr_ShouldReturnEmpty_GivenEmptyInput(t *testing.T) {
-	// Setup.
-	input := ""
-
-	// Execute.
-	result := filterBenignStderr(input)
-
-	// Assert.
-	if result != "" {
-		t.Errorf("expected empty string, got '%s'", result)
-	}
-}
-
 func TestProjImport_ShouldFail_GivenNoProjInstalled(t *testing.T) {
 	// Setup.
 	origPath := os.Getenv("PATH")

@@ -1,7 +1,6 @@
 package project
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -253,50 +252,17 @@ func ProjImport(repoPath string) (string, error) {
 	repoName := filepath.Base(repoPath)
 	projDir := filepath.Join(projRoot, "projects", repoName)
 	cmd := exec.Command("proj", "import", "--local", repoPath, "--branch", branch)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		combined := strings.TrimSpace(stdout.String() + "\n" + stderr.String())
-		return "", fmt.Errorf("proj import failed: %s: %w", combined, err)
-	}
-	stderrStr := filterBenignStderr(stderr.String())
-	if stderrStr != "" {
-		return "", fmt.Errorf("proj import had errors:\n%s", stderrStr)
+		return "", fmt.Errorf("proj import failed: %s: %w", strings.TrimSpace(string(output)), err)
 	}
 	if !IsProjDirectory(projDir) {
 		return "", fmt.Errorf("proj import completed but %s is missing .repo directory", projDir)
 	}
-	return projDir, nil
-}
-
-var benignStderrPrefixes = []string{
-	"no crontab for",
-	"Created symlink",
-	"HEAD is now at",
-	"Preparing worktree",
-}
-
-func filterBenignStderr(raw string) string {
-	var significant []string
-	for _, line := range strings.Split(raw, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			continue
-		}
-		benign := false
-		for _, prefix := range benignStderrPrefixes {
-			if strings.HasPrefix(trimmed, prefix) {
-				benign = true
-				break
-			}
-		}
-		if !benign {
-			significant = append(significant, trimmed)
-		}
+	if FindProjTemplateDir(projDir) == "" {
+		return "", fmt.Errorf("proj import completed but %s has no template worktree", projDir)
 	}
-	return strings.Join(significant, "\n")
+	return projDir, nil
 }
 
 func GetRepoRoot(path string) (string, error) {
