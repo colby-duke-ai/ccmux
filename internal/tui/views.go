@@ -30,6 +30,7 @@ const (
 	ViewAddProjectName
 	ViewAddProjectPath
 	ViewConfirmRemoveProject
+	ViewEditProject
 	ViewConfirmKillSession
 	ViewAgentInfo
 	ViewUpdate
@@ -160,7 +161,14 @@ func renderMainView(m model) string {
 		b.WriteString("\n")
 	} else {
 		for _, p := range m.projects {
-			b.WriteString(fmt.Sprintf("  - %s %s\n", projectStyle.Render(p.Name), dimStyle.Render(p.Path)))
+			extras := dimStyle.Render(p.Path)
+			if p.DefaultBaseBranch != "" {
+				extras += "  " + dimStyle.Render("base:"+p.DefaultBaseBranch)
+			}
+			if p.CIWaitMinutes > 0 {
+				extras += "  " + dimStyle.Render(fmt.Sprintf("ci:%dm", p.CIWaitMinutes))
+			}
+			b.WriteString(fmt.Sprintf("  - %s %s\n", projectStyle.Render(p.Name), extras))
 		}
 	}
 	b.WriteString("\n")
@@ -265,7 +273,11 @@ func renderNewTaskBranchInputView(m model) string {
 	b.WriteString(inputStyle.Render(m.branchInput.View()))
 	b.WriteString("\n\n")
 
-	b.WriteString(dimStyle.Render("Leave empty for origin/master"))
+	defaultBranch := "origin/master"
+	if m.selectedProj != nil && m.selectedProj.DefaultBaseBranch != "" {
+		defaultBranch = m.selectedProj.DefaultBaseBranch
+	}
+	b.WriteString(dimStyle.Render("Leave empty for " + defaultBranch))
 	b.WriteString("\n\n")
 
 	help := helpFooter(ViewNewTaskBranchInput)
@@ -452,6 +464,16 @@ func renderManageProjectsView(m model) string {
 			b.WriteString("\n")
 		}
 		b.WriteString("\n")
+
+		if m.selectedIndex >= 0 && m.selectedIndex < len(m.projects) {
+			selected := m.projects[m.selectedIndex]
+			b.WriteString(headerStyle.Render("## Details"))
+			b.WriteString("\n")
+			b.WriteString(fmt.Sprintf("  Path:        %s\n", dimStyle.Render(selected.Path)))
+			b.WriteString(fmt.Sprintf("  Base branch: %s\n", dimStyle.Render(selected.EffectiveBaseBranch())))
+			b.WriteString(fmt.Sprintf("  CI wait:     %s\n", dimStyle.Render(fmt.Sprintf("%d min", selected.EffectiveCIWaitMinutes()))))
+			b.WriteString("\n")
+		}
 	}
 
 	help := helpFooter(ViewManageProjects)
@@ -495,6 +517,41 @@ func renderAddProjectPathView(m model) string {
 	b.WriteString("\n\n")
 
 	help := helpFooter(ViewAddProjectPath)
+	b.WriteString(renderFooter(help, m.ctrlCPressed))
+
+	return b.String()
+}
+
+func renderEditProjectView(m model) string {
+	var b strings.Builder
+
+	b.WriteString(titleStyle.Render("# Edit Project"))
+	b.WriteString("\n\n")
+
+	if m.selectedProj != nil {
+		b.WriteString(fmt.Sprintf("Project: %s\n\n", projectStyle.Render(m.selectedProj.Name)))
+	}
+
+	fields := []struct {
+		label string
+		input string
+	}{
+		{"Path:", m.editProjectForm.pathInput.View()},
+		{"Default base branch:", m.editProjectForm.baseBranchInput.View()},
+		{"CI wait (minutes):", m.editProjectForm.ciWaitInput.View()},
+	}
+
+	for i, f := range fields {
+		marker := "  "
+		if i == m.editProjectForm.focusIndex {
+			marker = "> "
+		}
+		b.WriteString(fmt.Sprintf("%s%s\n", marker, f.label))
+		b.WriteString(fmt.Sprintf("  %s\n", inputStyle.Render(f.input)))
+		b.WriteString("\n")
+	}
+
+	help := helpFooter(ViewEditProject)
 	b.WriteString(renderFooter(help, m.ctrlCPressed))
 
 	return b.String()

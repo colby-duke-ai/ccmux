@@ -240,11 +240,12 @@ func spawnCmd() *cobra.Command {
 				return err
 			}
 			a := &agent.Agent{
-				ID:         agentID,
-				Task:       task,
-				TmuxWindow: windowID,
-				BaseBranch: baseBranch,
-				Status:     agent.StatusSpawning,
+				ID:          agentID,
+				Task:        task,
+				ProjectName: projectName,
+				TmuxWindow:  windowID,
+				BaseBranch:  baseBranch,
+				Status:      agent.StatusSpawning,
 			}
 			if err := agentStore.Create(a); err != nil {
 				return err

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -43,9 +44,10 @@ type model struct {
 	spawnBranch      string
 
 	// Project form inputs
-	projectForm    projectFormModel
-	newProjectName string
-	newProjectPath string
+	projectForm     projectFormModel
+	editProjectForm editProjectFormModel
+	newProjectName  string
+	newProjectPath  string
 
 	// Intervention input
 	interveneInput textarea.Model
@@ -102,6 +104,13 @@ type projectFormModel struct {
 	focusIndex int // 0=name, 1=path
 }
 
+type editProjectFormModel struct {
+	pathInput       textinput.Model
+	baseBranchInput textinput.Model
+	ciWaitInput     textinput.Model
+	focusIndex      int // 0=path, 1=baseBranch, 2=ciWait
+}
+
 func newProjectForm() projectFormModel {
 	nameInput := textinput.New()
 	nameInput.Placeholder = "my-project"
@@ -131,6 +140,60 @@ func (pf *projectFormModel) reset() {
 	pf.focusIndex = 0
 	pf.blurAll()
 	pf.nameInput.Focus()
+}
+
+func newEditProjectForm() editProjectFormModel {
+	pathInput := textinput.New()
+	pathInput.Placeholder = "/home/user/projects/my-project"
+	pathInput.Width = 50
+	pathInput.CharLimit = 200
+
+	baseBranchInput := textinput.New()
+	baseBranchInput.Placeholder = "origin/master"
+	baseBranchInput.Width = 50
+	baseBranchInput.CharLimit = 100
+
+	ciWaitInput := textinput.New()
+	ciWaitInput.Placeholder = "5"
+	ciWaitInput.Width = 10
+	ciWaitInput.CharLimit = 5
+
+	return editProjectFormModel{
+		pathInput:       pathInput,
+		baseBranchInput: baseBranchInput,
+		ciWaitInput:     ciWaitInput,
+		focusIndex:      0,
+	}
+}
+
+func (ef *editProjectFormModel) blurAll() {
+	ef.pathInput.Blur()
+	ef.baseBranchInput.Blur()
+	ef.ciWaitInput.Blur()
+}
+
+func (ef *editProjectFormModel) focusCurrent() {
+	ef.blurAll()
+	switch ef.focusIndex {
+	case 0:
+		ef.pathInput.Focus()
+	case 1:
+		ef.baseBranchInput.Focus()
+	case 2:
+		ef.ciWaitInput.Focus()
+	}
+}
+
+func (ef *editProjectFormModel) loadFromProject(p *project.Project) {
+	ef.pathInput.SetValue(p.Path)
+	ef.baseBranchInput.SetValue(p.DefaultBaseBranch)
+	if p.CIWaitMinutes > 0 {
+		ef.ciWaitInput.SetValue(fmt.Sprintf("%d", p.CIWaitMinutes))
+	} else {
+		ef.ciWaitInput.SetValue("")
+	}
+	ef.focusIndex = 0
+	ef.focusCurrent()
 }
 
 func findProjectPath(name string) string {
@@ -180,7 +243,11 @@ func getLocalBranches(repoPath string) []string {
 
 func (m model) branchEntries() []branchEntry {
 	var entries []branchEntry
-	entries = append(entries, branchEntry{tag: "(default)", name: "origin/master", value: "origin/master"})
+	defaultBranch := "origin/master"
+	if m.selectedProj != nil && m.selectedProj.DefaultBaseBranch != "" {
+		defaultBranch = m.selectedProj.DefaultBaseBranch
+	}
+	entries = append(entries, branchEntry{tag: "(default)", name: defaultBranch, value: defaultBranch})
 	entries = append(entries, branchEntry{name: "Manually specify branch...", isManual: true})
 
 	if m.branchFilter.Value() != "" {
@@ -295,6 +362,7 @@ func initialModel(agentStore *agent.Store, queueManager *queue.Queue, projectSto
 		branchFilter:      branchFilter,
 		interveneInput:    interveneInput,
 		projectForm:       newProjectForm(),
+		editProjectForm:   newEditProjectForm(),
 		ciResumeTriggered: make(map[string]bool),
 		prevWindowNames:   make(map[string]string),
 		totalMemKB:        getTotalMemoryKB(),
@@ -486,12 +554,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.agentResources = msg.resources
 		m.prevCPUTicks = msg.prevCPUTicks
 
+		projectMap := make(map[string]*project.Project)
+		for _, p := range m.projects {
+			projectMap[p.Name] = p
+		}
+
 		activeWaiting := make(map[string]bool)
 		var cmds []tea.Cmd
 		for _, a := range m.agents {
 			if a.Status == agent.StatusWaitingCI {
 				activeWaiting[a.ID] = true
-				if time.Since(a.UpdatedAt) >= 15*time.Minute && !m.ciResumeTriggered[a.ID] {
+				waitMinutes := project.DefaultCIWaitMinutes
+				if p, ok := projectMap[a.ProjectName]; ok {
+					waitMinutes = p.EffectiveCIWaitMinutes()
+				}
+				if time.Since(a.UpdatedAt) >= time.Duration(waitMinutes)*time.Minute && !m.ciResumeTriggered[a.ID] {
 					m.ciResumeTriggered[a.ID] = true
 					cmds = append(cmds, m.resumeCICheckCmd(a))
 				}
@@ -598,6 +675,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 	}
+	if m.view == ViewEditProject {
+		var cmd tea.Cmd
+		switch m.editProjectForm.focusIndex {
+		case 0:
+			m.editProjectForm.pathInput, cmd = m.editProjectForm.pathInput.Update(msg)
+		case 1:
+			m.editProjectForm.baseBranchInput, cmd = m.editProjectForm.baseBranchInput.Update(msg)
+		case 2:
+			m.editProjectForm.ciWaitInput, cmd = m.editProjectForm.ciWaitInput.Update(msg)
+		}
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
 	if m.view == ViewInterveneInput {
 		var cmd tea.Cmd
 		m.interveneInput, cmd = m.interveneInput.Update(msg)
@@ -660,6 +751,8 @@ func (m model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleAddProjectNameKeys(msg)
 	case ViewAddProjectPath:
 		return m.handleAddProjectPathKeys(msg)
+	case ViewEditProject:
+		return m.handleEditProjectKeys(msg)
 	case ViewConfirmRemoveProject:
 		return m.handleConfirmRemoveProjectKeys(msg)
 	case ViewConfirmKillSession:
@@ -821,6 +914,9 @@ func (m model) handleNewTaskBranchInputKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 		branch := m.branchInput.Value()
 		if branch == "" {
 			branch = "origin/master"
+			if m.selectedProj != nil && m.selectedProj.DefaultBaseBranch != "" {
+				branch = m.selectedProj.DefaultBaseBranch
+			}
 		}
 		m.spawnBranch = branch
 		m.view = ViewNewTaskInput
@@ -1011,6 +1107,13 @@ func (m model) handleManageProjectsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.newProjectPath = ""
 		m.projectForm.nameInput.Focus()
 		return m, textinput.Blink
+	case "e":
+		if m.selectedIndex >= 0 && m.selectedIndex < len(m.projects) {
+			m.selectedProj = m.projects[m.selectedIndex]
+			m.view = ViewEditProject
+			m.editProjectForm.loadFromProject(m.selectedProj)
+			return m, textinput.Blink
+		}
 	case "d":
 		if m.selectedIndex >= 0 && m.selectedIndex < len(m.projects) {
 			m.selectedProj = m.projects[m.selectedIndex]
@@ -1018,6 +1121,56 @@ func (m model) handleManageProjectsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+func (m model) handleEditProjectKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.editProjectForm.blurAll()
+		m.view = ViewManageProjects
+		m.selectedProj = nil
+		return m, nil
+	case "tab":
+		m.editProjectForm.focusIndex = (m.editProjectForm.focusIndex + 1) % 3
+		m.editProjectForm.focusCurrent()
+		return m, textinput.Blink
+	case "shift+tab":
+		m.editProjectForm.focusIndex = (m.editProjectForm.focusIndex + 2) % 3
+		m.editProjectForm.focusCurrent()
+		return m, textinput.Blink
+	case "enter":
+		if m.selectedProj == nil {
+			return m, nil
+		}
+		path := m.editProjectForm.pathInput.Value()
+		baseBranch := m.editProjectForm.baseBranchInput.Value()
+		ciWaitStr := m.editProjectForm.ciWaitInput.Value()
+		ciWait := 0
+		if ciWaitStr != "" {
+			parsed, err := strconv.Atoi(ciWaitStr)
+			if err != nil || parsed < 0 {
+				m.err = fmt.Errorf("CI wait must be a positive number")
+				return m, nil
+			}
+			ciWait = parsed
+		}
+		projName := m.selectedProj.Name
+		m.editProjectForm.blurAll()
+		m.view = ViewManageProjects
+		m.selectedProj = nil
+		return m, m.updateProjectCmd(projName, path, baseBranch, ciWait)
+	}
+
+	var cmd tea.Cmd
+	switch m.editProjectForm.focusIndex {
+	case 0:
+		m.editProjectForm.pathInput, cmd = m.editProjectForm.pathInput.Update(msg)
+	case 1:
+		m.editProjectForm.baseBranchInput, cmd = m.editProjectForm.baseBranchInput.Update(msg)
+	case 2:
+		m.editProjectForm.ciWaitInput, cmd = m.editProjectForm.ciWaitInput.Update(msg)
+	}
+	return m, cmd
 }
 
 func (m model) handleAddProjectNameKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -1245,6 +1398,22 @@ func (m model) addProjectCmd(name, path string) tea.Cmd {
 			return errMsg{err}
 		}
 		return successMsg{fmt.Sprintf("Added project '%s'", name)}
+	}
+}
+
+func (m model) updateProjectCmd(name, path, baseBranch string, ciWait int) tea.Cmd {
+	return func() tea.Msg {
+		err := m.projectStore.Update(name, func(p *project.Project) {
+			if path != "" {
+				p.Path = path
+			}
+			p.DefaultBaseBranch = baseBranch
+			p.CIWaitMinutes = ciWait
+		})
+		if err != nil {
+			return errMsg{err}
+		}
+		return successMsg{fmt.Sprintf("Updated project '%s'", name)}
 	}
 }
 
@@ -1550,6 +1719,8 @@ func (m model) View() string {
 		content = renderAddProjectNameView(m)
 	case ViewAddProjectPath:
 		content = renderAddProjectPathView(m)
+	case ViewEditProject:
+		content = renderEditProjectView(m)
 	case ViewConfirmRemoveProject:
 		content = renderConfirmRemoveProjectView(m)
 	case ViewConfirmKillSession:

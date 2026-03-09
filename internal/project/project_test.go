@@ -155,3 +155,96 @@ func TestRemove_ShouldDeleteProject_GivenValidName(t *testing.T) {
 	}
 }
 
+func TestUpdate_ShouldModifyProject_GivenValidName(t *testing.T) {
+	// Setup.
+	store, repoDir, cleanup := setupTestStore(t)
+	defer cleanup()
+	store.Add(&Project{Name: "updatable", Path: repoDir})
+
+	// Execute.
+	err := store.Update("updatable", func(p *Project) {
+		p.DefaultBaseBranch = "origin/main"
+		p.CIWaitMinutes = 10
+	})
+
+	// Assert.
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	retrieved, _ := store.Get("updatable")
+	if retrieved.DefaultBaseBranch != "origin/main" {
+		t.Errorf("expected base branch 'origin/main', got '%s'", retrieved.DefaultBaseBranch)
+	}
+	if retrieved.CIWaitMinutes != 10 {
+		t.Errorf("expected CI wait 10, got %d", retrieved.CIWaitMinutes)
+	}
+}
+
+func TestUpdate_ShouldFail_GivenNonExistentProject(t *testing.T) {
+	// Setup.
+	store, _, cleanup := setupTestStore(t)
+	defer cleanup()
+
+	// Execute.
+	err := store.Update("ghost", func(p *Project) {
+		p.CIWaitMinutes = 5
+	})
+
+	// Assert.
+	if err == nil {
+		t.Error("expected error for non-existent project, got nil")
+	}
+}
+
+func TestEffectiveCIWaitMinutes_ShouldReturnDefault_GivenZeroValue(t *testing.T) {
+	// Setup.
+	p := &Project{Name: "test", CIWaitMinutes: 0}
+
+	// Execute.
+	result := p.EffectiveCIWaitMinutes()
+
+	// Assert.
+	if result != DefaultCIWaitMinutes {
+		t.Errorf("expected %d, got %d", DefaultCIWaitMinutes, result)
+	}
+}
+
+func TestEffectiveCIWaitMinutes_ShouldReturnCustom_GivenPositiveValue(t *testing.T) {
+	// Setup.
+	p := &Project{Name: "test", CIWaitMinutes: 10}
+
+	// Execute.
+	result := p.EffectiveCIWaitMinutes()
+
+	// Assert.
+	if result != 10 {
+		t.Errorf("expected 10, got %d", result)
+	}
+}
+
+func TestEffectiveBaseBranch_ShouldReturnDefault_GivenEmptyValue(t *testing.T) {
+	// Setup.
+	p := &Project{Name: "test"}
+
+	// Execute.
+	result := p.EffectiveBaseBranch()
+
+	// Assert.
+	if result != "origin/master" {
+		t.Errorf("expected 'origin/master', got '%s'", result)
+	}
+}
+
+func TestEffectiveBaseBranch_ShouldReturnCustom_GivenNonEmptyValue(t *testing.T) {
+	// Setup.
+	p := &Project{Name: "test", DefaultBaseBranch: "origin/main"}
+
+	// Execute.
+	result := p.EffectiveBaseBranch()
+
+	// Assert.
+	if result != "origin/main" {
+		t.Errorf("expected 'origin/main', got '%s'", result)
+	}
+}
+

@@ -20,6 +20,7 @@ var inputViews = map[ViewState]bool{
 	ViewInterveneInput:     true,
 	ViewAddProjectName:     true,
 	ViewAddProjectPath:     true,
+	ViewEditProject:        true,
 }
 
 var viewTitles = map[ViewState]string{
@@ -36,6 +37,7 @@ var viewTitles = map[ViewState]string{
 	ViewManageProjects:       "Manage Projects",
 	ViewAddProjectName:       "Add Project (Name)",
 	ViewAddProjectPath:       "Add Project (Path)",
+	ViewEditProject:          "Edit Project",
 	ViewConfirmRemoveProject: "Remove Project",
 	ViewConfirmKillSession:   "Kill Session",
 	ViewAgentInfo:            "Info on Agent",
@@ -97,9 +99,17 @@ var viewHelpCommands = map[ViewState][]helpCommand{
 		{FooterText: "[esc] back", Description: "Return to main view"},
 	},
 	ViewManageProjects: {
+		{FooterText: "[↑/↓/j/k] select", Description: "Navigate the project list"},
 		{FooterText: "[a]dd project", Description: "Register a new project"},
+		{FooterText: "[e]dit selected", Description: "Edit the selected project"},
 		{FooterText: "[d]elete selected", Description: "Remove the selected project"},
 		{FooterText: "[esc] back", Description: "Return to main view"},
+	},
+	ViewEditProject: {
+		{FooterText: "[tab] next field", Description: "Move to the next field"},
+		{FooterText: "[shift+tab] prev field", Description: "Move to the previous field"},
+		{FooterText: "[enter] save", Description: "Save changes"},
+		{FooterText: "[esc] cancel", Description: "Cancel and return to project management"},
 	},
 	ViewAddProjectName: {
 		{FooterText: "[enter] next", Description: "Proceed to path entry"},
