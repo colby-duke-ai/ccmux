@@ -1,7 +1,6 @@
 package project
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -253,20 +252,15 @@ func ProjImport(repoPath string) (string, error) {
 	repoName := filepath.Base(repoPath)
 	projDir := filepath.Join(projRoot, "projects", repoName)
 	cmd := exec.Command("proj", "import", "--local", repoPath, "--branch", branch)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		combined := strings.TrimSpace(stdout.String() + "\n" + stderr.String())
-		return "", fmt.Errorf("proj import failed: %s: %w", combined, err)
-	}
-	stderrStr := strings.TrimSpace(stderr.String())
-	if stderrStr != "" {
-		return "", fmt.Errorf("proj import had errors:\n%s", stderrStr)
+		return "", fmt.Errorf("proj import failed: %s: %w", strings.TrimSpace(string(output)), err)
 	}
 	if !IsProjDirectory(projDir) {
 		return "", fmt.Errorf("proj import completed but %s is missing .repo directory", projDir)
+	}
+	if FindProjTemplateDir(projDir) == "" {
+		return "", fmt.Errorf("proj import completed but %s has no template worktree", projDir)
 	}
 	return projDir, nil
 }
