@@ -165,10 +165,50 @@ func (s *Store) Remove(name string) error {
 	return s.save(data)
 }
 
+func (s *Store) Update(name string, fn func(p *Project)) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	data, err := s.load()
+	if err != nil {
+		return err
+	}
+
+	p, exists := data.Projects[name]
+	if !exists {
+		return fmt.Errorf("project %s not found", name)
+	}
+
+	fn(p)
+	return s.save(data)
+}
+
 func isGitRepo(path string) bool {
 	cmd := exec.Command("git", "rev-parse", "--git-dir")
 	cmd.Dir = path
 	return cmd.Run() == nil
+}
+
+func IsProjDirectory(path string) bool {
+	info, err := os.Stat(filepath.Join(path, ".repo"))
+	return err == nil && info.IsDir()
+}
+
+func FindProjTemplateDir(projDir string) (string, error) {
+	entries, err := os.ReadDir(projDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to read proj directory: %w", err)
+	}
+	for _, e := range entries {
+		if e.IsDir() && strings.HasPrefix(e.Name(), "00-") {
+			return filepath.Join(projDir, e.Name()), nil
+		}
+	}
+	return "", fmt.Errorf("no template directory found in %s", projDir)
+}
+
+func ProjImportCmd(repoPath string) *exec.Cmd {
+	return exec.Command("proj", "import", "--local", repoPath)
 }
 
 func GetRepoRoot(path string) (string, error) {
@@ -180,4 +220,13 @@ func GetRepoRoot(path string) (string, error) {
 	}
 	gitDir := strings.TrimSpace(string(output))
 	return filepath.Dir(gitDir), nil
+}
+
+func EffectiveRepoPath(p *Project) string {
+	if p.UseFastWorktrees && IsProjDirectory(p.Path) {
+		if tmpl, err := FindProjTemplateDir(p.Path); err == nil {
+			return tmpl
+		}
+	}
+	return p.Path
 }

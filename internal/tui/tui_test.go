@@ -5,6 +5,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/CDFalcon/ccmux/internal/project"
 )
 
 func newTestModel() model {
@@ -27,6 +28,7 @@ func newTestModel() model {
 		branchInput:      branchInput,
 		branchFilter:     branchFilter,
 		taskInput:        taskInput,
+		projectImports:   make(map[string]*projImportProcess),
 		downloadProgress: progress,
 	}
 }
@@ -222,5 +224,155 @@ func TestHandleNewTaskBranchKeys_ShouldGoBack_GivenEscWithNoFilter(t *testing.T)
 	rm := result.(model)
 	if rm.view != ViewSelectProject {
 		t.Errorf("expected ViewSelectProject, got %d", rm.view)
+	}
+}
+
+func TestIsProjectImporting_ShouldReturnTrue_GivenActiveImport(t *testing.T) {
+	// Setup.
+	m := newTestModel()
+	proc := &projImportProcess{}
+	m.projectImports["test-proj"] = proc
+
+	// Execute.
+	result := m.isProjectImporting("test-proj")
+
+	// Assert.
+	if !result {
+		t.Error("expected isProjectImporting to return true for active import")
+	}
+}
+
+func TestIsProjectImporting_ShouldReturnFalse_GivenDoneImport(t *testing.T) {
+	// Setup.
+	m := newTestModel()
+	proc := &projImportProcess{}
+	proc.finish(nil)
+	m.projectImports["test-proj"] = proc
+
+	// Execute.
+	result := m.isProjectImporting("test-proj")
+
+	// Assert.
+	if result {
+		t.Error("expected isProjectImporting to return false for done import")
+	}
+}
+
+func TestIsProjectImporting_ShouldReturnFalse_GivenNoImport(t *testing.T) {
+	// Setup.
+	m := newTestModel()
+
+	// Execute.
+	result := m.isProjectImporting("nonexistent")
+
+	// Assert.
+	if result {
+		t.Error("expected isProjectImporting to return false for nonexistent project")
+	}
+}
+
+func TestHandleAddProjectFastWTKeys_ShouldGoBack_GivenEsc(t *testing.T) {
+	// Setup.
+	m := newTestModel()
+	m.view = ViewAddProjectFastWT
+	m.projectForm = newProjectForm()
+
+	// Execute.
+	result, _ := m.handleAddProjectFastWTKeys(tea.KeyMsg{Type: tea.KeyEsc})
+
+	// Assert.
+	rm := result.(model)
+	if rm.view != ViewAddProjectPath {
+		t.Errorf("expected ViewAddProjectPath, got %d", rm.view)
+	}
+}
+
+func TestHandleAddProjectPathKeys_ShouldGoToFastWT_GivenEnterWithPath(t *testing.T) {
+	// Setup.
+	m := newTestModel()
+	m.view = ViewAddProjectPath
+	m.projectForm = newProjectForm()
+	m.projectForm.pathInput.SetValue("/some/path")
+
+	// Execute.
+	result, _ := m.handleAddProjectPathKeys(tea.KeyMsg{Type: tea.KeyEnter})
+
+	// Assert.
+	rm := result.(model)
+	if rm.view != ViewAddProjectFastWT {
+		t.Errorf("expected ViewAddProjectFastWT, got %d", rm.view)
+	}
+	if rm.newProjectPath != "/some/path" {
+		t.Errorf("expected path '/some/path', got '%s'", rm.newProjectPath)
+	}
+}
+
+func TestHandleProjImportOutputKeys_ShouldGoBack_GivenEsc(t *testing.T) {
+	// Setup.
+	m := newTestModel()
+	m.view = ViewProjImportOutput
+
+	// Execute.
+	result, _ := m.handleProjImportOutputKeys(tea.KeyMsg{Type: tea.KeyEsc})
+
+	// Assert.
+	rm := result.(model)
+	if rm.view != ViewManageProjects {
+		t.Errorf("expected ViewManageProjects, got %d", rm.view)
+	}
+}
+
+func TestProjImportProcess_ShouldStreamLines_GivenAppendAndGet(t *testing.T) {
+	// Setup.
+	proc := &projImportProcess{}
+
+	// Execute.
+	proc.appendLine("line 1")
+	proc.appendLine("line 2")
+	lines := proc.getLines()
+
+	// Assert.
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 lines, got %d", len(lines))
+	}
+	if lines[0] != "line 1" || lines[1] != "line 2" {
+		t.Errorf("unexpected lines: %v", lines)
+	}
+}
+
+func TestProjImportProcess_ShouldReportDone_GivenFinishCalled(t *testing.T) {
+	// Setup.
+	proc := &projImportProcess{}
+	proc.appendLine("output")
+
+	// Execute.
+	proc.finish(nil)
+	done, err := proc.isDone()
+
+	// Assert.
+	if !done {
+		t.Error("expected done to be true")
+	}
+	if err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+}
+
+func TestHandleManageProjectsEnter_ShouldShowImportOutput_GivenImportingProject(t *testing.T) {
+	// Setup.
+	m := newTestModel()
+	m.view = ViewManageProjects
+	m.selectedIndex = 0
+	m.projects = []*project.Project{{Name: "importing-proj", Path: "/tmp"}}
+	proc := &projImportProcess{}
+	m.projectImports["importing-proj"] = proc
+
+	// Execute.
+	result, _ := m.handleManageProjectsEnter()
+
+	// Assert.
+	rm := result.(model)
+	if rm.view != ViewProjImportOutput {
+		t.Errorf("expected ViewProjImportOutput, got %d", rm.view)
 	}
 }

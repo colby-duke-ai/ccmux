@@ -136,6 +136,125 @@ func TestList_ShouldReturnSortedByName_GivenMultipleProjects(t *testing.T) {
 	}
 }
 
+func TestAdd_ShouldPersistFastWorktrees_GivenFlagEnabled(t *testing.T) {
+	// Setup.
+	store, repoDir, cleanup := setupTestStore(t)
+	defer cleanup()
+
+	// Execute.
+	err := store.Add(&Project{Name: "fast-proj", Path: repoDir, UseFastWorktrees: true})
+
+	// Assert.
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	retrieved, err := store.Get("fast-proj")
+	if err != nil {
+		t.Fatalf("failed to retrieve: %v", err)
+	}
+	if !retrieved.UseFastWorktrees {
+		t.Error("expected UseFastWorktrees to be true")
+	}
+}
+
+func TestUpdate_ShouldModifyProject_GivenValidName(t *testing.T) {
+	// Setup.
+	store, repoDir, cleanup := setupTestStore(t)
+	defer cleanup()
+	store.Add(&Project{Name: "upd", Path: repoDir})
+
+	// Execute.
+	err := store.Update("upd", func(p *Project) {
+		p.UseFastWorktrees = true
+	})
+
+	// Assert.
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	retrieved, _ := store.Get("upd")
+	if !retrieved.UseFastWorktrees {
+		t.Error("expected UseFastWorktrees to be true after update")
+	}
+}
+
+func TestUpdate_ShouldFail_GivenInvalidName(t *testing.T) {
+	// Setup.
+	store, _, cleanup := setupTestStore(t)
+	defer cleanup()
+
+	// Execute.
+	err := store.Update("nonexistent", func(p *Project) {
+		p.UseFastWorktrees = true
+	})
+
+	// Assert.
+	if err == nil {
+		t.Error("expected error for nonexistent project, got nil")
+	}
+}
+
+func TestIsProjDirectory_ShouldReturnTrue_GivenDotRepoExists(t *testing.T) {
+	// Setup.
+	tmpDir, _ := os.MkdirTemp("", "proj-test")
+	defer os.RemoveAll(tmpDir)
+	os.MkdirAll(filepath.Join(tmpDir, ".repo"), 0755)
+
+	// Execute.
+	result := IsProjDirectory(tmpDir)
+
+	// Assert.
+	if !result {
+		t.Error("expected IsProjDirectory to return true")
+	}
+}
+
+func TestIsProjDirectory_ShouldReturnFalse_GivenNoDotRepo(t *testing.T) {
+	// Setup.
+	tmpDir, _ := os.MkdirTemp("", "proj-test")
+	defer os.RemoveAll(tmpDir)
+
+	// Execute.
+	result := IsProjDirectory(tmpDir)
+
+	// Assert.
+	if result {
+		t.Error("expected IsProjDirectory to return false")
+	}
+}
+
+func TestFindProjTemplateDir_ShouldFindTemplate_GivenZeroPrefixDir(t *testing.T) {
+	// Setup.
+	tmpDir, _ := os.MkdirTemp("", "proj-test")
+	defer os.RemoveAll(tmpDir)
+	os.MkdirAll(filepath.Join(tmpDir, "00-template"), 0755)
+
+	// Execute.
+	result, err := FindProjTemplateDir(tmpDir)
+
+	// Assert.
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if filepath.Base(result) != "00-template" {
+		t.Errorf("expected '00-template', got '%s'", filepath.Base(result))
+	}
+}
+
+func TestFindProjTemplateDir_ShouldFail_GivenNoTemplate(t *testing.T) {
+	// Setup.
+	tmpDir, _ := os.MkdirTemp("", "proj-test")
+	defer os.RemoveAll(tmpDir)
+
+	// Execute.
+	_, err := FindProjTemplateDir(tmpDir)
+
+	// Assert.
+	if err == nil {
+		t.Error("expected error when no template dir found")
+	}
+}
+
 func TestRemove_ShouldDeleteProject_GivenValidName(t *testing.T) {
 	// Setup.
 	store, repoDir, cleanup := setupTestStore(t)

@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/CDFalcon/ccmux/internal/agent"
+	"github.com/CDFalcon/ccmux/internal/project"
 	"github.com/CDFalcon/ccmux/internal/queue"
 	"github.com/CDFalcon/ccmux/internal/updater"
 	"github.com/CDFalcon/ccmux/internal/version"
@@ -33,6 +34,8 @@ const (
 	ViewConfirmKillSession
 	ViewJumpToAgent
 	ViewUpdate
+	ViewAddProjectFastWT
+	ViewProjImportOutput
 )
 
 const (
@@ -151,7 +154,17 @@ func renderMainView(m model) string {
 		b.WriteString("\n")
 	} else {
 		for _, p := range m.projects {
-			b.WriteString(fmt.Sprintf("  - %s %s\n", projectStyle.Render(p.Name), dimStyle.Render(p.Path)))
+			if m.isProjectImporting(p.Name) {
+				spin := styledSpinner(m.spinnerFrame, agentSpawningStyle)
+				status := agentSpawningStyle.Render("importing")
+				b.WriteString(fmt.Sprintf("  %s %s %s [%s]\n", spin, projectStyle.Render(p.Name), dimStyle.Render(p.Path), status))
+			} else {
+				fastWTLabel := ""
+				if p.UseFastWorktrees {
+					fastWTLabel = dimStyle.Render(" [fast wt]")
+				}
+				b.WriteString(fmt.Sprintf("  - %s %s%s\n", projectStyle.Render(p.Name), dimStyle.Render(p.Path), fastWTLabel))
+			}
 		}
 	}
 	b.WriteString("\n")
@@ -182,8 +195,14 @@ func renderSelectProjectView(m model) string {
 			if i == m.selectedIndex {
 				style = selectedItemStyle
 			}
-			line := fmt.Sprintf("%s  %s", p.Name, dimStyle.Render(p.Path))
-			b.WriteString(style.Render(line))
+			if m.isProjectImporting(p.Name) {
+				spin := styledSpinner(m.spinnerFrame, agentSpawningStyle)
+				line := fmt.Sprintf("%s %s  %s", spin, p.Name, agentSpawningStyle.Render("importing..."))
+				b.WriteString(style.Render(line))
+			} else {
+				line := fmt.Sprintf("%s  %s", p.Name, dimStyle.Render(p.Path))
+				b.WriteString(style.Render(line))
+			}
 			b.WriteString("\n")
 		}
 		b.WriteString("\n")
@@ -438,14 +457,25 @@ func renderManageProjectsView(m model) string {
 			if i == m.selectedIndex {
 				style = selectedItemStyle
 			}
-			line := fmt.Sprintf("%s  %s", p.Name, dimStyle.Render(p.Path))
-			b.WriteString(style.Render(line))
+			if m.isProjectImporting(p.Name) {
+				spin := styledSpinner(m.spinnerFrame, agentSpawningStyle)
+				status := agentSpawningStyle.Render("importing")
+				line := fmt.Sprintf("%s %s  %s [%s]", spin, p.Name, dimStyle.Render(p.Path), status)
+				b.WriteString(style.Render(line))
+			} else {
+				fastWTLabel := ""
+				if p.UseFastWorktrees {
+					fastWTLabel = " " + dimStyle.Render("[fast wt]")
+				}
+				line := fmt.Sprintf("%s  %s%s", p.Name, dimStyle.Render(p.Path), fastWTLabel)
+				b.WriteString(style.Render(line))
+			}
 			b.WriteString("\n")
 		}
 		b.WriteString("\n")
 	}
 
-	help := "[a]dd project  [d]elete selected  [esc] back"
+	help := "[a]dd project  [d]elete selected  [enter] view import  [esc] back"
 	b.WriteString(renderFooter(help, m.ctrlCPressed))
 
 	return b.String()
@@ -454,7 +484,7 @@ func renderManageProjectsView(m model) string {
 func renderAddProjectNameView(m model) string {
 	var b strings.Builder
 
-	b.WriteString(titleStyle.Render("# Add Project - Step 1/2"))
+	b.WriteString(titleStyle.Render("# Add Project - Step 1/3"))
 	b.WriteString("\n\n")
 
 	b.WriteString("Enter project name:\n")
@@ -473,7 +503,7 @@ func renderAddProjectNameView(m model) string {
 func renderAddProjectPathView(m model) string {
 	var b strings.Builder
 
-	b.WriteString(titleStyle.Render("# Add Project - Step 2/2"))
+	b.WriteString(titleStyle.Render("# Add Project - Step 2/3"))
 	b.WriteString("\n\n")
 
 	b.WriteString(fmt.Sprintf("Project: %s\n\n", projectStyle.Render(m.newProjectName)))
@@ -838,6 +868,88 @@ func renderUpdateView(m model) string {
 		help := "[esc] back"
 		b.WriteString(renderFooter(help, m.ctrlCPressed))
 	}
+
+	return b.String()
+}
+
+func renderAddProjectFastWTView(m model) string {
+	var b strings.Builder
+
+	b.WriteString(titleStyle.Render("# Add Project - Step 3/3"))
+	b.WriteString("\n\n")
+
+	b.WriteString(fmt.Sprintf("Project: %s\n", projectStyle.Render(m.newProjectName)))
+	b.WriteString(fmt.Sprintf("Path: %s\n\n", dimStyle.Render(m.newProjectPath)))
+
+	if project.IsProjDirectory(m.newProjectPath) {
+		b.WriteString(agentRunningStyle.Render("Detected proj directory (.repo found)"))
+		b.WriteString("\n\n")
+	}
+
+	b.WriteString("Enable fast worktrees?\n")
+	b.WriteString(dimStyle.Render("Uses proj (reflink copy) for near-instant worktree creation.\n"))
+	b.WriteString(dimStyle.Render("If not already a proj directory, will run 'proj import' to set up."))
+	b.WriteString("\n\n")
+
+	help := "[y]es  [n]o  [esc] back"
+	b.WriteString(renderFooter(help, m.ctrlCPressed))
+
+	return b.String()
+}
+
+func renderProjImportOutputView(m model) string {
+	var b strings.Builder
+
+	b.WriteString(titleStyle.Render("# Project Import"))
+	b.WriteString("\n\n")
+
+	if m.selectedProj != nil {
+		b.WriteString(fmt.Sprintf("Project: %s\n", projectStyle.Render(m.selectedProj.Name)))
+		b.WriteString(fmt.Sprintf("Path: %s\n\n", dimStyle.Render(m.selectedProj.Path)))
+	}
+
+	projName := ""
+	if m.selectedProj != nil {
+		projName = m.selectedProj.Name
+	}
+	proc, hasProc := m.projectImports[projName]
+	if hasProc {
+		done, importErr := proc.isDone()
+
+		if !done {
+			b.WriteString(fmt.Sprintf("%s Importing...\n\n", styledSpinner(m.spinnerFrame, agentSpawningStyle)))
+		} else if importErr != nil {
+			b.WriteString(errorStyle.Render("Import failed: "+importErr.Error()))
+			b.WriteString("\n\n")
+		} else {
+			b.WriteString(agentRunningStyle.Render("Import complete!"))
+			b.WriteString("\n\n")
+		}
+
+		b.WriteString(headerStyle.Render("## Output"))
+		b.WriteString("\n")
+
+		lines := proc.getLines()
+		maxLines := 20
+		start := 0
+		if len(lines) > maxLines {
+			start = len(lines) - maxLines
+			b.WriteString(dimStyle.Render(fmt.Sprintf("  ... %d lines above ...", start)))
+			b.WriteString("\n")
+		}
+		for i := start; i < len(lines); i++ {
+			b.WriteString("  " + lines[i] + "\n")
+		}
+		if len(lines) == 0 {
+			b.WriteString(dimStyle.Render("  No output yet..."))
+			b.WriteString("\n")
+		}
+	}
+
+	b.WriteString("\n")
+
+	help := "[esc] back"
+	b.WriteString(renderFooter(help, m.ctrlCPressed))
 
 	return b.String()
 }

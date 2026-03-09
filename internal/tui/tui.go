@@ -2,11 +2,13 @@
 package tui
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -49,6 +51,9 @@ type model struct {
 	// Intervention input
 	interveneInput textarea.Model
 	interveneAgent *agent.Agent
+
+	// Project import state
+	projectImports map[string]*projImportProcess
 
 	// Update state
 	updateChecking    bool
@@ -107,6 +112,15 @@ func newProjectForm() projectFormModel {
 		pathInput:  pathInput,
 		focusIndex: 0,
 	}
+}
+
+func (m model) isProjectImporting(name string) bool {
+	proc, ok := m.projectImports[name]
+	if !ok {
+		return false
+	}
+	done, _ := proc.isDone()
+	return !done
 }
 
 func (pf *projectFormModel) blurAll() {
@@ -242,6 +256,44 @@ type changelogFetchedMsg struct {
 	entries []updater.ChangelogEntry
 	err     error
 }
+type projImportDoneMsg struct {
+	projectName string
+	err         error
+}
+
+type projImportProcess struct {
+	mu    sync.Mutex
+	lines []string
+	done  bool
+	err   error
+}
+
+func (p *projImportProcess) appendLine(line string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.lines = append(p.lines, line)
+}
+
+func (p *projImportProcess) getLines() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	result := make([]string, len(p.lines))
+	copy(result, p.lines)
+	return result
+}
+
+func (p *projImportProcess) finish(err error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.done = true
+	p.err = err
+}
+
+func (p *projImportProcess) isDone() (bool, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.done, p.err
+}
 
 func newAutoGrowTextarea(placeholder string, width int) textarea.Model {
 	ta := textarea.New()
@@ -292,6 +344,7 @@ func initialModel(agentStore *agent.Store, queueManager *queue.Queue, projectSto
 		branchFilter:     branchFilter,
 		interveneInput:   interveneInput,
 		projectForm:      newProjectForm(),
+		projectImports:   make(map[string]*projImportProcess),
 		downloadProgress: progress,
 		agentStore:       agentStore,
 		queueManager:     queueManager,
@@ -447,6 +500,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+		if !shouldAnimate {
+			for _, proc := range m.projectImports {
+				if done, _ := proc.isDone(); !done {
+					shouldAnimate = true
+					break
+				}
+			}
+		}
 		if shouldAnimate {
 			m.spinnerFrame = (m.spinnerFrame + 1) % SpinnerFrameCount
 			m.marqueeOffset++
@@ -492,6 +553,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.updateComplete = true
 		return m, nil
+
+	case projImportDoneMsg:
+		if msg.err != nil {
+			m.err = fmt.Errorf("proj import failed for '%s': %s", msg.projectName, msg.err)
+			return m, clearMessageCmd()
+		}
+		return m, m.refreshCmd()
 
 	case errMsg:
 		m.err = msg.err
@@ -602,6 +670,10 @@ func (m model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleAddProjectNameKeys(msg)
 	case ViewAddProjectPath:
 		return m.handleAddProjectPathKeys(msg)
+	case ViewAddProjectFastWT:
+		return m.handleAddProjectFastWTKeys(msg)
+	case ViewProjImportOutput:
+		return m.handleProjImportOutputKeys(msg)
 	case ViewConfirmRemoveProject:
 		return m.handleConfirmRemoveProjectKeys(msg)
 	case ViewConfirmKillSession:
@@ -684,8 +756,14 @@ func (m model) handleSelectProjectKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "enter":
 		if m.selectedIndex >= 0 && m.selectedIndex < len(m.projects) {
-			m.selectedProj = m.projects[m.selectedIndex]
-			m.branchOptions = getLocalBranches(m.selectedProj.Path)
+			selected := m.projects[m.selectedIndex]
+			if m.isProjectImporting(selected.Name) {
+				m.err = fmt.Errorf("project '%s' is still importing", selected.Name)
+				return m, clearMessageCmd()
+			}
+			m.selectedProj = selected
+			repoPath := project.EffectiveRepoPath(selected)
+			m.branchOptions = getLocalBranches(repoPath)
 			m.branchFilter.SetValue("")
 			m.filteredBranches = nil
 			m.view = ViewNewTaskBranch
@@ -947,6 +1025,8 @@ func (m model) handleManageProjectsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.selectedIndex < len(m.projects)-1 {
 			m.selectedIndex++
 		}
+	case "enter":
+		return m.handleManageProjectsEnter()
 	case "a":
 		m.view = ViewAddProjectName
 		m.projectForm.reset()
@@ -1003,13 +1083,68 @@ func (m model) handleAddProjectPathKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if path == "" {
 			return m, nil
 		}
-		m.view = ViewManageProjects
-		return m, m.addProjectCmd(m.newProjectName, path)
+		m.newProjectPath = path
+		m.view = ViewAddProjectFastWT
+		return m, nil
 	}
 
 	var cmd tea.Cmd
 	m.projectForm.pathInput, cmd = m.projectForm.pathInput.Update(msg)
 	return m, cmd
+}
+
+func (m model) handleAddProjectFastWTKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.view = ViewAddProjectPath
+		m.projectForm.pathInput.Focus()
+		return m, textinput.Blink
+	case "n":
+		m.view = ViewManageProjects
+		m.selectedIndex = 0
+		return m, m.addProjectCmd(m.newProjectName, m.newProjectPath, false)
+	case "y":
+		if _, err := exec.LookPath("proj"); err != nil {
+			m.err = fmt.Errorf("'proj' not found in PATH. Install proj first: https://github.com/Applied-Shared/proj")
+			m.view = ViewManageProjects
+			m.selectedIndex = 0
+			return m, clearMessageCmd()
+		}
+		needsImport := !project.IsProjDirectory(m.newProjectPath)
+		m.view = ViewManageProjects
+		m.selectedIndex = 0
+		if needsImport {
+			proc := &projImportProcess{}
+			m.projectImports[m.newProjectName] = proc
+			return m, tea.Batch(
+				m.addProjectCmd(m.newProjectName, m.newProjectPath, true),
+				m.runProjImportCmd(m.newProjectName, m.newProjectPath, proc),
+			)
+		}
+		return m, m.addProjectCmd(m.newProjectName, m.newProjectPath, true)
+	}
+	return m, nil
+}
+
+func (m model) handleProjImportOutputKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.selectedProj = nil
+		m.view = ViewManageProjects
+	}
+	return m, nil
+}
+
+func (m model) handleManageProjectsEnter() (tea.Model, tea.Cmd) {
+	if m.selectedIndex >= 0 && m.selectedIndex < len(m.projects) {
+		proj := m.projects[m.selectedIndex]
+		if _, ok := m.projectImports[proj.Name]; ok {
+			m.selectedProj = proj
+			m.view = ViewProjImportOutput
+			return m, nil
+		}
+	}
+	return m, nil
 }
 
 func (m model) handleConfirmRemoveProjectKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -1168,11 +1303,12 @@ func (m model) detachCmd() tea.Cmd {
 	}
 }
 
-func (m model) addProjectCmd(name, path string) tea.Cmd {
+func (m model) addProjectCmd(name, path string, useFastWorktrees bool) tea.Cmd {
 	return func() tea.Msg {
 		p := &project.Project{
-			Name: name,
-			Path: path,
+			Name:             name,
+			Path:             path,
+			UseFastWorktrees: useFastWorktrees,
 		}
 		if err := m.projectStore.Add(p); err != nil {
 			return errMsg{err}
@@ -1187,6 +1323,32 @@ func (m model) removeProjectCmd(name string) tea.Cmd {
 			return errMsg{err}
 		}
 		return successMsg{fmt.Sprintf("Removed project '%s'", name)}
+	}
+}
+
+func (m model) runProjImportCmd(projectName, repoPath string, proc *projImportProcess) tea.Cmd {
+	return func() tea.Msg {
+		cmd := project.ProjImportCmd(repoPath)
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			proc.finish(err)
+			return projImportDoneMsg{projectName: projectName, err: err}
+		}
+		cmd.Stderr = cmd.Stdout
+
+		if err := cmd.Start(); err != nil {
+			proc.finish(err)
+			return projImportDoneMsg{projectName: projectName, err: err}
+		}
+
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			proc.appendLine(scanner.Text())
+		}
+
+		err = cmd.Wait()
+		proc.finish(err)
+		return projImportDoneMsg{projectName: projectName, err: err}
 	}
 }
 
@@ -1406,6 +1568,10 @@ func (m model) View() string {
 		content = renderAddProjectNameView(m)
 	case ViewAddProjectPath:
 		content = renderAddProjectPathView(m)
+	case ViewAddProjectFastWT:
+		content = renderAddProjectFastWTView(m)
+	case ViewProjImportOutput:
+		content = renderProjImportOutputView(m)
 	case ViewConfirmRemoveProject:
 		content = renderConfirmRemoveProjectView(m)
 	case ViewConfirmKillSession:

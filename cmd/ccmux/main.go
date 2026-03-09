@@ -222,7 +222,7 @@ func spawnCmd() *cobra.Command {
 			tmuxSessionName := fmt.Sprintf("ccmux-%s", sessionID)
 			tmuxManager := tmux.NewManager(tmuxSessionName)
 
-			launcherScript, err := writeLauncherScript(agentID, task, proj.Path, baseBranch, sessionID)
+			launcherScript, err := writeLauncherScript(agentID, task, proj.Path, baseBranch, sessionID, proj.UseFastWorktrees)
 			if err != nil {
 				return fmt.Errorf("failed to create launcher script: %w", err)
 			}
@@ -261,7 +261,7 @@ func spawnCmd() *cobra.Command {
 	return cmd
 }
 
-func writeLauncherScript(agentID, task, repoPath, baseBranch, sessionID string) (string, error) {
+func writeLauncherScript(agentID, task, repoPath, baseBranch, sessionID string, useFastWorktrees bool) (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
@@ -273,6 +273,32 @@ func writeLauncherScript(agentID, task, repoPath, baseBranch, sessionID string) 
 	}
 
 	scriptPath := filepath.Join(launcherDir, agentID+".sh")
+
+	var worktreeBlock string
+	if useFastWorktrees {
+		worktreeBlock = `# Create fast worktree via proj
+WORKTREE_PATH="$REPO_PATH/ccmux-$AGENT_ID"
+BRANCH_NAME="${PROJ_PREFIX:-$USER}/ccmux-$AGENT_ID"
+
+echo "→ Creating fast worktree at $WORKTREE_PATH..."
+cd "$REPO_PATH"
+proj new "ccmux-$AGENT_ID"
+cd "$WORKTREE_PATH"
+git checkout -b "$BRANCH_NAME" "$BASE_BRANCH" 2>/dev/null || git checkout -B "$BRANCH_NAME" "$BASE_BRANCH"
+echo "✓ Worktree created (fast)"
+echo ""`
+	} else {
+		worktreeBlock = `# Create worktree
+WORKTREE_PATH="$(dirname "$REPO_PATH")/ccmux-$AGENT_ID"
+BRANCH_NAME="ccmux/$AGENT_ID"
+
+echo "→ Creating worktree at $WORKTREE_PATH..."
+cd "$REPO_PATH"
+git worktree add -b "$BRANCH_NAME" "$WORKTREE_PATH" "$BASE_BRANCH"
+cd "$WORKTREE_PATH"
+echo "✓ Worktree created"
+echo ""`
+	}
 
 	script := fmt.Sprintf(`#!/bin/bash
 set -e
@@ -291,16 +317,7 @@ echo -e "${BLUE}CC${WHITE}MUX Agent ${DIM}$AGENT_ID${RESET}"
 echo -e "${DIM}Task:${RESET} $TASK"
 echo ""
 
-# Create worktree
-WORKTREE_PATH="$(dirname "$REPO_PATH")/ccmux-$AGENT_ID"
-BRANCH_NAME="ccmux/$AGENT_ID"
-
-echo "→ Creating worktree at $WORKTREE_PATH..."
-cd "$REPO_PATH"
-git worktree add -b "$BRANCH_NAME" "$WORKTREE_PATH" "$BASE_BRANCH"
-cd "$WORKTREE_PATH"
-echo "✓ Worktree created"
-echo ""
+%s
 
 # Install hooks
 echo "→ Installing Claude Code hooks..."
@@ -377,7 +394,7 @@ claude --dangerously-skip-permissions --system-prompt "$SYSTEM_PROMPT" \
   "$TASK"
 
 ccmux agent-stopped "$AGENT_ID"
-`, agentID, task, repoPath, baseBranch, sessionID)
+`, agentID, task, repoPath, baseBranch, sessionID, worktreeBlock)
 
 	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
 		return "", err
@@ -644,14 +661,24 @@ func doCleanup(agentID, action string) error {
 	tmuxManager := tmux.NewManager(tmuxSessionName)
 	tmuxManager.KillWindow(a.TmuxWindow)
 
-	repoRoot, err := project.GetRepoRoot(a.WorktreePath)
-	if err == nil {
-		wtManager := worktree.NewManager(repoRoot)
-		os.RemoveAll(filepath.Join(a.WorktreePath, ".claude"))
-		if err := wtManager.Remove(a.WorktreePath); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to remove worktree: %v\n", err)
+	os.RemoveAll(filepath.Join(a.WorktreePath, ".claude"))
+	parentDir := filepath.Dir(a.WorktreePath)
+	if project.IsProjDirectory(parentDir) {
+		worktreeName := filepath.Base(a.WorktreePath)
+		rmCmd := exec.Command("proj", "rm", worktreeName)
+		rmCmd.Dir = parentDir
+		if output, err := rmCmd.CombinedOutput(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to remove proj worktree: %s: %v\n", string(output), err)
 		}
-		wtManager.DeleteBranch(a.BranchName)
+	} else {
+		repoRoot, err := project.GetRepoRoot(a.WorktreePath)
+		if err == nil {
+			wtManager := worktree.NewManager(repoRoot)
+			if err := wtManager.Remove(a.WorktreePath); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to remove worktree: %v\n", err)
+			}
+			wtManager.DeleteBranch(a.BranchName)
+		}
 	}
 
 	homeDir, _ := os.UserHomeDir()
@@ -700,12 +727,20 @@ func killSessionCmd() *cobra.Command {
 
 			agents, _ := agentStore.List()
 			for _, a := range agents {
-				repoRoot, err := project.GetRepoRoot(a.WorktreePath)
-				if err == nil {
-					wtManager := worktree.NewManager(repoRoot)
-					os.RemoveAll(filepath.Join(a.WorktreePath, ".claude"))
-					wtManager.Remove(a.WorktreePath)
-					wtManager.DeleteBranch(a.BranchName)
+				os.RemoveAll(filepath.Join(a.WorktreePath, ".claude"))
+				parentDir := filepath.Dir(a.WorktreePath)
+				if project.IsProjDirectory(parentDir) {
+					worktreeName := filepath.Base(a.WorktreePath)
+					rmCmd := exec.Command("proj", "rm", worktreeName)
+					rmCmd.Dir = parentDir
+					rmCmd.CombinedOutput()
+				} else {
+					repoRoot, err := project.GetRepoRoot(a.WorktreePath)
+					if err == nil {
+						wtManager := worktree.NewManager(repoRoot)
+						wtManager.Remove(a.WorktreePath)
+						wtManager.DeleteBranch(a.BranchName)
+					}
 				}
 				os.Remove(filepath.Join(launcherDir, a.ID+".sh"))
 				os.Remove(filepath.Join(launcherDir, a.ID+"-review.sh"))
@@ -783,12 +818,20 @@ func recoverOrphanedAgents(sessionID string, tmuxManager *tmux.Manager, homeDir 
 
 	for _, a := range toCleanup {
 		logging.Log("recovery: cleaning up stale agent %s", a.ID)
-		repoRoot, err := project.GetRepoRoot(a.WorktreePath)
-		if err == nil {
-			wtManager := worktree.NewManager(repoRoot)
-			os.RemoveAll(filepath.Join(a.WorktreePath, ".claude"))
-			wtManager.Remove(a.WorktreePath)
-			wtManager.DeleteBranch(a.BranchName)
+		os.RemoveAll(filepath.Join(a.WorktreePath, ".claude"))
+		parentDir := filepath.Dir(a.WorktreePath)
+		if project.IsProjDirectory(parentDir) {
+			worktreeName := filepath.Base(a.WorktreePath)
+			rmCmd := exec.Command("proj", "rm", worktreeName)
+			rmCmd.Dir = parentDir
+			rmCmd.CombinedOutput()
+		} else {
+			repoRoot, err := project.GetRepoRoot(a.WorktreePath)
+			if err == nil {
+				wtManager := worktree.NewManager(repoRoot)
+				wtManager.Remove(a.WorktreePath)
+				wtManager.DeleteBranch(a.BranchName)
+			}
 		}
 		os.Remove(filepath.Join(launcherDir, a.ID+".sh"))
 		os.Remove(filepath.Join(launcherDir, a.ID+"-review.sh"))
