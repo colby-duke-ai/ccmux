@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -35,6 +36,16 @@ func setupTestStore(t *testing.T) (*Store, string, func()) {
 	}
 
 	return s, repoDir, cleanup
+}
+
+func runGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@test.com", "GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@test.com")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v failed: %s: %v", args, string(out), err)
+	}
 }
 
 func TestAdd_ShouldStoreProject_GivenValidProject(t *testing.T) {
@@ -378,6 +389,69 @@ func TestUpdate_ShouldToggleFastWorktrees_GivenUpdate(t *testing.T) {
 	retrieved, _ := store.Get("toggleable")
 	if !retrieved.UseFastWorktrees {
 		t.Error("expected UseFastWorktrees to be true after update")
+	}
+}
+
+func TestDetectDefaultBranch_ShouldReturnMaster_GivenMasterBranch(t *testing.T) {
+	// Setup.
+	dir := t.TempDir()
+	runGit(t, dir, "init")
+	runGit(t, dir, "checkout", "-b", "master")
+	runGit(t, dir, "commit", "--allow-empty", "-m", "init")
+
+	// Execute.
+	branch := DetectDefaultBranch(dir)
+
+	// Assert.
+	if branch != "master" {
+		t.Errorf("expected 'master', got '%s'", branch)
+	}
+}
+
+func TestDetectDefaultBranch_ShouldReturnMain_GivenMainBranch(t *testing.T) {
+	// Setup.
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-b", "main")
+	runGit(t, dir, "commit", "--allow-empty", "-m", "init")
+
+	// Execute.
+	branch := DetectDefaultBranch(dir)
+
+	// Assert.
+	if branch != "main" {
+		t.Errorf("expected 'main', got '%s'", branch)
+	}
+}
+
+func TestProjImport_ShouldFail_GivenNoProjInstalled(t *testing.T) {
+	// Setup.
+	origPath := os.Getenv("PATH")
+	t.Setenv("PATH", "/nonexistent")
+	defer os.Setenv("PATH", origPath)
+
+	// Execute.
+	_, err := ProjImport("/some/path")
+
+	// Assert.
+	if err == nil {
+		t.Error("expected error when proj is not installed")
+	}
+}
+
+func TestProjImport_ShouldFail_GivenNoProjRoot(t *testing.T) {
+	if !IsProjInstalled() {
+		t.Skip("proj not installed")
+	}
+
+	// Setup.
+	t.Setenv("PROJ_ROOT", "")
+
+	// Execute.
+	_, err := ProjImport("/some/path")
+
+	// Assert.
+	if err == nil || !strings.Contains(err.Error(), "PROJ_ROOT") {
+		t.Errorf("expected PROJ_ROOT error, got %v", err)
 	}
 }
 

@@ -221,6 +221,36 @@ func FindProjTemplateDir(projDir string) string {
 	return ""
 }
 
+func DetectDefaultBranch(repoPath string) string {
+	for _, branch := range []string{"master", "main"} {
+		cmd := exec.Command("git", "rev-parse", "--verify", branch)
+		cmd.Dir = repoPath
+		if cmd.Run() == nil {
+			return branch
+		}
+	}
+	return "master"
+}
+
+func ProjImport(repoPath string) (string, error) {
+	if !IsProjInstalled() {
+		return "", fmt.Errorf("proj is not installed")
+	}
+	projRoot := os.Getenv("PROJ_ROOT")
+	if projRoot == "" {
+		return "", fmt.Errorf("PROJ_ROOT is not set — see github.com/Applied-Shared/proj for setup")
+	}
+	branch := DetectDefaultBranch(repoPath)
+	repoName := filepath.Base(repoPath)
+	projDir := filepath.Join(projRoot, "projects", repoName)
+	cmd := exec.Command("proj", "import", "--local", repoPath, "--branch", branch)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("proj import failed: %s: %w", strings.TrimSpace(string(output)), err)
+	}
+	return projDir, nil
+}
+
 func GetRepoRoot(path string) (string, error) {
 	cmd := exec.Command("git", "rev-parse", "--path-format=absolute", "--git-common-dir")
 	cmd.Dir = path

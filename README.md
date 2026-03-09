@@ -34,7 +34,7 @@ sudo mv ccmux-linux-amd64 /usr/local/bin/ccmux
 
 ## Optional: Fast Worktrees
 
-For large repos, worktree creation can be slow. Install [proj](https://github.com/Applied-Shared/proj) to enable near-instant worktree creation via reflink copy. Once `proj` is on your PATH and you've imported your repo with `proj import`, ccmux will auto-detect proj directories and use fast worktrees automatically.
+For large repos, worktree creation can be slow. Install [proj](https://github.com/Applied-Shared/proj) to enable near-instant worktree creation via reflink copy. Once `proj` is on your PATH, ccmux will offer to set up fast worktrees automatically when adding a project. For repos already imported with `proj import`, ccmux auto-detects and enables fast worktrees.
 
 ## Quick Start
 

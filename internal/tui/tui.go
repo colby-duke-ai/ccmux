@@ -1178,10 +1178,6 @@ func (m model) handleEditProjectKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		fastWTStr := strings.ToLower(strings.TrimSpace(m.editProjectForm.fastWTInput.Value()))
 		useFastWT := fastWTStr == "yes" || fastWTStr == "true" || fastWTStr == "y"
-		if useFastWT && !project.IsProjInstalled() {
-			m.err = fmt.Errorf("proj is not installed. Install from github.com/Applied-Shared/proj")
-			return m, clearMessageCmd()
-		}
 		projName := m.selectedProj.Name
 		m.editProjectForm.blurAll()
 		m.view = ViewManageProjects
@@ -1268,10 +1264,6 @@ func (m model) handleAddProjectFastWTKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.projectForm.pathInput.Focus()
 		return m, textinput.Blink
 	case "y":
-		if !project.IsProjInstalled() {
-			m.err = fmt.Errorf("proj is not installed. Install from github.com/Applied-Shared/proj")
-			return m, clearMessageCmd()
-		}
 		m.view = ViewManageProjects
 		return m, m.addProjectCmd(m.newProjectName, m.newProjectPath, true)
 	case "n":
@@ -1449,6 +1441,13 @@ func (m model) detachCmd() tea.Cmd {
 
 func (m model) addProjectCmd(name, path string, useFastWT bool) tea.Cmd {
 	return func() tea.Msg {
+		if useFastWT && !project.IsProjDirectory(path) {
+			projDir, err := project.ProjImport(path)
+			if err != nil {
+				return errMsg{err}
+			}
+			path = projDir
+		}
 		p := &project.Project{
 			Name:             name,
 			Path:             path,
@@ -1463,6 +1462,13 @@ func (m model) addProjectCmd(name, path string, useFastWT bool) tea.Cmd {
 
 func (m model) updateProjectCmd(name, path, baseBranch string, ciWait int, useFastWT bool) tea.Cmd {
 	return func() tea.Msg {
+		if useFastWT && path != "" && !project.IsProjDirectory(path) {
+			projDir, err := project.ProjImport(path)
+			if err != nil {
+				return errMsg{err}
+			}
+			path = projDir
+		}
 		err := m.projectStore.Update(name, func(p *project.Project) {
 			if path != "" {
 				p.Path = path

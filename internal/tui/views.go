@@ -534,11 +534,8 @@ func renderAddProjectFastWTView(m model) string {
 	b.WriteString(titleStyle.Render("# Add Project - Fast Worktrees"))
 	b.WriteString("\n\n")
 
-	b.WriteString(fmt.Sprintf("Project: %s\n", projectStyle.Render(m.newProjectName)))
-	b.WriteString(fmt.Sprintf("Path:    %s\n\n", dimStyle.Render(m.newProjectPath)))
-
-	b.WriteString("Use fast worktrees? (beta)\n\n")
-	b.WriteString(dimStyle.Render("Creates worktrees via reflink copy — near-instant for large repos."))
+	b.WriteString("Enable fast worktrees? (y/n)\n\n")
+	b.WriteString(dimStyle.Render("Runs 'proj import' to enable near-instant worktree creation."))
 	b.WriteString("\n\n")
 
 	help := helpFooter(ViewAddProjectFastWT)

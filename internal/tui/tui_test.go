@@ -371,7 +371,7 @@ func TestHandleAddProjectFastWTKeys_ShouldGoBack_GivenEsc(t *testing.T) {
 	}
 }
 
-func TestHandleAddProjectFastWTKeys_ShouldShowError_GivenYesWithoutProjInstalled(t *testing.T) {
+func TestHandleAddProjectFastWTKeys_ShouldGoToManageProjects_GivenYes(t *testing.T) {
 	// Setup.
 	m := newTestModel()
 	m.view = ViewAddProjectFastWT
@@ -379,14 +379,15 @@ func TestHandleAddProjectFastWTKeys_ShouldShowError_GivenYesWithoutProjInstalled
 	m.newProjectPath = "/some/path"
 
 	// Execute.
-	result, _ := m.handleAddProjectFastWTKeys(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	result, cmd := m.handleAddProjectFastWTKeys(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
 
 	// Assert.
 	rm := result.(model)
-	if rm.err == nil {
-		if rm.view != ViewManageProjects {
-			t.Errorf("expected ViewManageProjects or error, got view %d", rm.view)
-		}
+	if rm.view != ViewManageProjects {
+		t.Errorf("expected ViewManageProjects, got %d", rm.view)
+	}
+	if cmd == nil {
+		t.Error("expected a command to be returned")
 	}
 }
 
