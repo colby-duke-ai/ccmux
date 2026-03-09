@@ -166,9 +166,6 @@ func renderMainView(m model) string {
 			if p.DefaultBaseBranch != "" {
 				extras += "  " + dimStyle.Render("base:"+p.DefaultBaseBranch)
 			}
-			if p.CIWaitMinutes > 0 {
-				extras += "  " + dimStyle.Render(fmt.Sprintf("ci:%dm", p.CIWaitMinutes))
-			}
 			if p.UseFastWorktrees {
 				extras += "  " + dimStyle.Render("fast-wt")
 			}
@@ -583,8 +580,8 @@ func renderEditProjectView(m model) string {
 			marker = "> "
 		}
 		b.WriteString(fmt.Sprintf("%s%s\n", marker, f.label))
-		b.WriteString(fmt.Sprintf("  %s\n", inputStyle.Render(f.input)))
-		b.WriteString("\n")
+		b.WriteString(inputStyle.Render(f.input))
+		b.WriteString("\n\n")
 	}
 
 	help := helpFooter(ViewEditProject)
