@@ -147,6 +147,25 @@ func (s *Store) List() ([]*Project, error) {
 	return projects, nil
 }
 
+func (s *Store) Update(name string, fn func(p *Project)) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	data, err := s.load()
+	if err != nil {
+		return err
+	}
+
+	p, exists := data.Projects[name]
+	if !exists {
+		return fmt.Errorf("project %s not found", name)
+	}
+
+	fn(p)
+
+	return s.save(data)
+}
+
 func (s *Store) Remove(name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
