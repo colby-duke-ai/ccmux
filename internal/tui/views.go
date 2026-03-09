@@ -165,9 +165,6 @@ func renderMainView(m model) string {
 			if p.DefaultBaseBranch != "" {
 				extras += "  " + dimStyle.Render("base:"+p.DefaultBaseBranch)
 			}
-			if p.CIWaitMinutes > 0 {
-				extras += "  " + dimStyle.Render(fmt.Sprintf("ci:%dm", p.CIWaitMinutes))
-			}
 			b.WriteString(fmt.Sprintf("  - %s %s\n", projectStyle.Render(p.Name), extras))
 		}
 	}
