@@ -5,9 +5,6 @@ A terminal-based orchestrator for managing multiple [Claude Code](https://docs.a
 Each agent gets its own git worktree, branch, and tmux window — so multiple agents can work on different tasks in the same repo without conflicts.
 
 ## Setup (Linux x86_64)
-
-Install all prerequisites and ccmux in one shot:
-
 ```bash
 # Install system dependencies
 sudo apt-get update && sudo apt-get install -y git tmux jq
