@@ -1172,9 +1172,6 @@ echo -e "${DIM}Reviewing PR comments...${RESET}"
 echo ""
 
 export CCMUX_AGENT_ID="$AGENT_ID"
-export CLAUDE_CODE_USE_BEDROCK=1
-export AWS_REGION=us-west-2
-unset CLAUDECODE
 
 claude --continue --permission-mode dontAsk \
   "The GitHub PR at %s has received review comments. Please review the comments with: gh pr view %s --comments, then address all the feedback. Commit and push your changes, and then run: ccmux pr-ready %s"

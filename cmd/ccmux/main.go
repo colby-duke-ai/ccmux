@@ -293,9 +293,6 @@ echo ""
 cd "$WORKTREE_PATH"
 
 export CCMUX_AGENT_ID="$AGENT_ID"
-export CLAUDE_CODE_USE_BEDROCK=1
-export AWS_REGION=us-west-2
-unset CLAUDECODE
 
 claude --dangerously-skip-permissions --system-prompt "You are working on a task as part of the ccmux agent system. Environment variable CCMUX_AGENT_ID=$AGENT_ID is set for hook integration.
 
