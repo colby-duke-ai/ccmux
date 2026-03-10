@@ -163,14 +163,20 @@ func renderMainView(m model) string {
 		b.WriteString("\n")
 	} else {
 		for _, p := range m.projects {
-			extras := dimStyle.Render(p.EffectivePath())
-			if p.DefaultBaseBranch != "" {
-				extras += "  " + dimStyle.Render("base:"+p.DefaultBaseBranch)
+			if p.IsSettingUp() {
+				spin := styledSpinner(m.spinnerFrame, agentSpawningStyle)
+				status := agentSpawningStyle.Render("setting up")
+				b.WriteString(fmt.Sprintf("  %s %s [%s]\n", spin, projectStyle.Render(p.Name), status))
+			} else {
+				extras := dimStyle.Render(p.EffectivePath())
+				if p.DefaultBaseBranch != "" {
+					extras += "  " + dimStyle.Render("base:"+p.DefaultBaseBranch)
+				}
+				if p.UseFastWorktrees {
+					extras += "  " + dimStyle.Render("fast-worktrees")
+				}
+				b.WriteString(fmt.Sprintf("  - %s %s\n", projectStyle.Render(p.Name), extras))
 			}
-			if p.UseFastWorktrees {
-				extras += "  " + dimStyle.Render("fast-worktrees")
-			}
-			b.WriteString(fmt.Sprintf("  - %s %s\n", projectStyle.Render(p.Name), extras))
 		}
 	}
 	b.WriteString("\n")
@@ -201,8 +207,14 @@ func renderSelectProjectView(m model) string {
 			if i == m.selectedIndex {
 				style = selectedItemStyle
 			}
-			line := fmt.Sprintf("%s  %s", p.Name, dimStyle.Render(p.EffectivePath()))
-			b.WriteString(style.Render(line))
+			if p.IsSettingUp() {
+				spin := styledSpinner(m.spinnerFrame, agentSpawningStyle)
+				line := fmt.Sprintf("%s %s  %s", spin, p.Name, agentSpawningStyle.Render("setting up"))
+				b.WriteString(style.Render(line))
+			} else {
+				line := fmt.Sprintf("%s  %s", p.Name, dimStyle.Render(p.EffectivePath()))
+				b.WriteString(style.Render(line))
+			}
 			b.WriteString("\n")
 		}
 		b.WriteString("\n")
@@ -461,25 +473,40 @@ func renderManageProjectsView(m model) string {
 			if i == m.selectedIndex {
 				style = selectedItemStyle
 			}
-			line := fmt.Sprintf("%s  %s", p.Name, dimStyle.Render(p.EffectivePath()))
-			b.WriteString(style.Render(line))
+			if p.IsSettingUp() {
+				spin := styledSpinner(m.spinnerFrame, agentSpawningStyle)
+				line := fmt.Sprintf("%s %s  %s", spin, p.Name, agentSpawningStyle.Render("setting up"))
+				b.WriteString(style.Render(line))
+			} else {
+				line := fmt.Sprintf("%s  %s", p.Name, dimStyle.Render(p.EffectivePath()))
+				b.WriteString(style.Render(line))
+			}
 			b.WriteString("\n")
 		}
 		b.WriteString("\n")
 
 		if m.selectedIndex >= 0 && m.selectedIndex < len(m.projects) {
 			selected := m.projects[m.selectedIndex]
-			b.WriteString(headerStyle.Render("## Details"))
-			b.WriteString("\n")
-			b.WriteString(fmt.Sprintf("  Path:        %s\n", dimStyle.Render(selected.EffectivePath())))
-			b.WriteString(fmt.Sprintf("  Base branch: %s\n", dimStyle.Render(selected.EffectiveBaseBranch())))
-			b.WriteString(fmt.Sprintf("  CI wait:     %s\n", dimStyle.Render(fmt.Sprintf("%d min", selected.EffectiveCIWaitMinutes()))))
-			fastWtStatus := "no"
-			if selected.UseFastWorktrees {
-				fastWtStatus = "yes (proj)"
+			if selected.IsSettingUp() {
+				b.WriteString(headerStyle.Render("## Setting up"))
+				b.WriteString("\n")
+				b.WriteString(dimStyle.Render("  Importing project for fast worktrees..."))
+				b.WriteString("\n")
+				b.WriteString(dimStyle.Render("  Press [enter] to view progress"))
+				b.WriteString("\n\n")
+			} else {
+				b.WriteString(headerStyle.Render("## Details"))
+				b.WriteString("\n")
+				b.WriteString(fmt.Sprintf("  Path:        %s\n", dimStyle.Render(selected.EffectivePath())))
+				b.WriteString(fmt.Sprintf("  Base branch: %s\n", dimStyle.Render(selected.EffectiveBaseBranch())))
+				b.WriteString(fmt.Sprintf("  CI wait:     %s\n", dimStyle.Render(fmt.Sprintf("%d min", selected.EffectiveCIWaitMinutes()))))
+				fastWtStatus := "no"
+				if selected.UseFastWorktrees {
+					fastWtStatus = "yes (proj)"
+				}
+				b.WriteString(fmt.Sprintf("  Fast worktrees: %s\n", dimStyle.Render(fastWtStatus)))
+				b.WriteString("\n")
 			}
-			b.WriteString(fmt.Sprintf("  Fast worktrees: %s\n", dimStyle.Render(fastWtStatus)))
-			b.WriteString("\n")
 		}
 	}
 
@@ -553,15 +580,17 @@ func renderAddProjectFastWTView(m model) string {
 func renderProjImportingView(m model) string {
 	var b strings.Builder
 
-	b.WriteString(titleStyle.Render("# Importing Project"))
+	b.WriteString(titleStyle.Render("# Setting Up Project"))
 	b.WriteString("\n\n")
 
-	b.WriteString(fmt.Sprintf("Project: %s\n", projectStyle.Render(m.newProjectName)))
-	b.WriteString(fmt.Sprintf("Path: %s\n\n", dimStyle.Render(m.newProjectPath)))
+	b.WriteString(fmt.Sprintf("Project: %s\n\n", projectStyle.Render(m.projSetupName)))
 
 	b.WriteString(fmt.Sprintf("%s Importing project (this may take a while)...\n\n", spinner(m.spinnerFrame)))
 
-	lines := m.projImportLines.lastN(5)
+	var lines []string
+	if buf, ok := m.projSetupBuffers[m.projSetupName]; ok {
+		lines = buf.lastN(5)
+	}
 	if len(lines) > 0 {
 		box := lipgloss.NewStyle().
 			BorderStyle(lipgloss.RoundedBorder()).

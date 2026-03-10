@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/CDFalcon/ccmux/internal/project"
 )
 
 func newTestModel() model {
@@ -30,7 +31,7 @@ func newTestModel() model {
 		branchFilter:     branchFilter,
 		taskInput:        taskInput,
 		downloadProgress: progress,
-		projImportLines:  &projImportBuffer{},
+		projSetupBuffers: make(map[string]*projImportBuffer),
 	}
 }
 
@@ -348,7 +349,7 @@ func TestHandleAddProjectFastWTKeys_ShouldGoBack_GivenEsc(t *testing.T) {
 	}
 }
 
-func TestHandleAddProjectFastWTKeys_ShouldGoToProjImporting_GivenYes(t *testing.T) {
+func TestHandleAddProjectFastWTKeys_ShouldGoToManageProjects_GivenYes(t *testing.T) {
 	// Setup.
 	m := newTestModel()
 	m.view = ViewAddProjectFastWT
@@ -360,11 +361,11 @@ func TestHandleAddProjectFastWTKeys_ShouldGoToProjImporting_GivenYes(t *testing.
 
 	// Assert.
 	rm := result.(model)
-	if rm.view != ViewProjImporting {
-		t.Errorf("expected ViewProjImporting, got %d", rm.view)
+	if rm.view != ViewManageProjects {
+		t.Errorf("expected ViewManageProjects, got %d", rm.view)
 	}
-	if !rm.projImporting {
-		t.Error("expected projImporting to be true")
+	if _, ok := rm.projSetupBuffers["test"]; !ok {
+		t.Error("expected projSetupBuffers to contain buffer for 'test'")
 	}
 	if cmd == nil {
 		t.Error("expected a command to be returned")
@@ -401,14 +402,12 @@ func TestHelpFooter_ShouldIncludeYesNo_GivenFastWTView(t *testing.T) {
 	}
 }
 
-func TestHandleProjImportingKeys_ShouldCancel_GivenEsc(t *testing.T) {
+func TestHandleProjImportingKeys_ShouldGoBack_GivenEsc(t *testing.T) {
 	// Setup.
 	m := newTestModel()
 	m.view = ViewProjImporting
-	m.projImporting = true
-	m.projImportLines.addLine("line 1")
-	cancelled := false
-	m.projImportCancel = func() { cancelled = true }
+	m.projSetupName = "test"
+	m.projSetupBuffers["test"] = &projImportBuffer{}
 
 	// Execute.
 	result, _ := m.handleProjImportingKeys(tea.KeyMsg{Type: tea.KeyEsc})
@@ -418,11 +417,8 @@ func TestHandleProjImportingKeys_ShouldCancel_GivenEsc(t *testing.T) {
 	if rm.view != ViewManageProjects {
 		t.Errorf("expected ViewManageProjects, got %d", rm.view)
 	}
-	if rm.projImporting {
-		t.Error("expected projImporting to be false")
-	}
-	if !cancelled {
-		t.Error("expected cancel function to be called")
+	if rm.projSetupName != "" {
+		t.Errorf("expected projSetupName cleared, got '%s'", rm.projSetupName)
 	}
 }
 
@@ -430,7 +426,7 @@ func TestHandleProjImportingKeys_ShouldIgnore_GivenOtherKeys(t *testing.T) {
 	// Setup.
 	m := newTestModel()
 	m.view = ViewProjImporting
-	m.projImporting = true
+	m.projSetupName = "test"
 
 	// Execute.
 	result, _ := m.handleProjImportingKeys(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
@@ -440,8 +436,8 @@ func TestHandleProjImportingKeys_ShouldIgnore_GivenOtherKeys(t *testing.T) {
 	if rm.view != ViewProjImporting {
 		t.Errorf("expected ViewProjImporting, got %d", rm.view)
 	}
-	if !rm.projImporting {
-		t.Error("expected projImporting to remain true")
+	if rm.projSetupName != "test" {
+		t.Errorf("expected projSetupName to remain 'test', got '%s'", rm.projSetupName)
 	}
 }
 
@@ -499,12 +495,77 @@ func TestProjImportBuffer_ShouldReturnEmpty_GivenReset(t *testing.T) {
 	}
 }
 
-func TestHelpFooter_ShouldIncludeEscCancel_GivenProjImportingView(t *testing.T) {
+func TestHelpFooter_ShouldIncludeEscBack_GivenProjImportingView(t *testing.T) {
 	// Setup/Execute.
 	footer := helpFooter(ViewProjImporting)
 
 	// Assert.
-	if !strings.Contains(footer, "[esc] cancel") {
-		t.Errorf("expected footer to contain '[esc] cancel', got '%s'", footer)
+	if !strings.Contains(footer, "[esc] back") {
+		t.Errorf("expected footer to contain '[esc] back', got '%s'", footer)
+	}
+}
+
+func TestHandleSelectProjectKeys_ShouldRejectSettingUpProject_GivenEnter(t *testing.T) {
+	// Setup.
+	m := newTestModel()
+	m.view = ViewSelectProject
+	m.projects = []*project.Project{
+		{Name: "test", Path: "/test", SetupStatus: project.SetupStatusSettingUp},
+	}
+	m.selectedIndex = 0
+
+	// Execute.
+	result, _ := m.handleSelectProjectKeys(tea.KeyMsg{Type: tea.KeyEnter})
+
+	// Assert.
+	rm := result.(model)
+	if rm.err == nil {
+		t.Error("expected error when selecting a setting-up project")
+	}
+	if rm.view != ViewSelectProject {
+		t.Errorf("expected to stay on ViewSelectProject, got %d", rm.view)
+	}
+}
+
+func TestHandleManageProjectsKeys_ShouldShowImportLog_GivenEnterOnSettingUpProject(t *testing.T) {
+	// Setup.
+	m := newTestModel()
+	m.view = ViewManageProjects
+	m.projects = []*project.Project{
+		{Name: "test", Path: "/test", SetupStatus: project.SetupStatusSettingUp},
+	}
+	m.selectedIndex = 0
+	m.projSetupBuffers["test"] = &projImportBuffer{}
+
+	// Execute.
+	result, _ := m.handleManageProjectsKeys(tea.KeyMsg{Type: tea.KeyEnter})
+
+	// Assert.
+	rm := result.(model)
+	if rm.view != ViewProjImporting {
+		t.Errorf("expected ViewProjImporting, got %d", rm.view)
+	}
+	if rm.projSetupName != "test" {
+		t.Errorf("expected projSetupName 'test', got '%s'", rm.projSetupName)
+	}
+}
+
+func TestHandleManageProjectsKeys_ShouldEditProject_GivenEnterOnReadyProject(t *testing.T) {
+	// Setup.
+	m := newTestModel()
+	m.view = ViewManageProjects
+	m.projects = []*project.Project{
+		{Name: "test", Path: "/test"},
+	}
+	m.selectedIndex = 0
+	m.editProjectForm = newEditProjectForm()
+
+	// Execute.
+	result, _ := m.handleManageProjectsKeys(tea.KeyMsg{Type: tea.KeyEnter})
+
+	// Assert.
+	rm := result.(model)
+	if rm.view != ViewEditProject {
+		t.Errorf("expected ViewEditProject, got %d", rm.view)
 	}
 }

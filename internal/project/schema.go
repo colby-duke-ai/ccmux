@@ -4,6 +4,8 @@ const CurrentSchemaVersion = 4
 
 const DefaultCIWaitMinutes = 5
 
+const SetupStatusSettingUp = "setting_up"
+
 type Project struct {
 	Name              string `json:"name"`
 	Path              string `json:"path"`
@@ -11,6 +13,11 @@ type Project struct {
 	DefaultBaseBranch string `json:"default_base_branch,omitempty"`
 	CIWaitMinutes     int    `json:"ci_wait_minutes,omitempty"`
 	UseFastWorktrees  bool   `json:"use_fast_worktrees,omitempty"`
+	SetupStatus       string `json:"setup_status,omitempty"`
+}
+
+func (p *Project) IsSettingUp() bool {
+	return p.SetupStatus == SetupStatusSettingUp
 }
 
 func (p *Project) EffectivePath() string {

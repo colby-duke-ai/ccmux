@@ -592,6 +592,53 @@ func TestUpdate_ShouldRevertToBasePath_GivenFastWorktreesDisabled(t *testing.T) 
 	}
 }
 
+func TestIsSettingUp_ShouldReturnTrue_GivenSettingUpStatus(t *testing.T) {
+	// Setup.
+	p := &Project{Name: "test", SetupStatus: SetupStatusSettingUp}
+
+	// Execute.
+	result := p.IsSettingUp()
+
+	// Assert.
+	if !result {
+		t.Error("expected IsSettingUp to return true")
+	}
+}
+
+func TestIsSettingUp_ShouldReturnFalse_GivenEmptyStatus(t *testing.T) {
+	// Setup.
+	p := &Project{Name: "test"}
+
+	// Execute.
+	result := p.IsSettingUp()
+
+	// Assert.
+	if result {
+		t.Error("expected IsSettingUp to return false")
+	}
+}
+
+func TestSetupStatus_ShouldPersist_GivenStore(t *testing.T) {
+	// Setup.
+	store, repoDir, cleanup := setupTestStore(t)
+	defer cleanup()
+	store.Add(&Project{Name: "setup-test", Path: repoDir})
+
+	// Execute.
+	err := store.Update("setup-test", func(p *Project) {
+		p.SetupStatus = SetupStatusSettingUp
+	})
+
+	// Assert.
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	retrieved, _ := store.Get("setup-test")
+	if !retrieved.IsSettingUp() {
+		t.Error("expected project to be in setting up state")
+	}
+}
+
 func TestMigrationV3ToV4_ShouldSetFastWorktreePath_GivenFastWorktreeProject(t *testing.T) {
 	// Setup.
 	v3Data := `{

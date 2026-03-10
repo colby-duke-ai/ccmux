@@ -54,10 +54,9 @@ type model struct {
 	interveneInput textarea.Model
 	interveneAgent *agent.Agent
 
-	// Project import state
-	projImporting    bool
-	projImportLines  *projImportBuffer
-	projImportCancel func()
+	// Project setup state (per-project import buffers)
+	projSetupBuffers map[string]*projImportBuffer
+	projSetupName    string
 
 	// Update state
 	updateChecking    bool
@@ -374,6 +373,11 @@ type changelogFetchedMsg struct {
 	entries []updater.ChangelogEntry
 	err     error
 }
+type projSetupCompleteMsg struct{ name string }
+type projSetupFailedMsg struct {
+	name string
+	err  error
+}
 
 func newFixedTextarea(placeholder string, width int) textarea.Model {
 	ta := textarea.New()
@@ -420,7 +424,7 @@ func initialModel(agentStore *agent.Store, queueManager *queue.Queue, projectSto
 		clkTck:            getClockTicks(),
 		prevCPUTicks:      make(map[int]int64),
 		downloadProgress:  progress,
-		projImportLines:   &projImportBuffer{},
+		projSetupBuffers:  make(map[string]*projImportBuffer),
 		agentStore:        agentStore,
 		queueManager:      queueManager,
 		projectStore:      projectStore,
@@ -583,7 +587,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(tickCmd(), m.refreshCmd())
 
 	case spinnerTickMsg:
-		shouldAnimate := m.updateChecking || m.updateDownloading || m.changelogLoading || m.projImporting
+		shouldAnimate := m.updateChecking || m.updateDownloading || m.changelogLoading
+		if !shouldAnimate {
+			for _, p := range m.projects {
+				if p.IsSettingUp() {
+					shouldAnimate = true
+					break
+				}
+			}
+		}
 		if !shouldAnimate {
 			for _, a := range m.agents {
 				if a.Status == agent.StatusSpawning || a.Status == agent.StatusRunning || a.Status == agent.StatusKilling || a.Status == agent.StatusCleaningUp || a.Status == agent.StatusWaitingCI {
@@ -683,23 +695,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case errMsg:
 		m.err = msg.err
-		if m.projImporting {
-			m.projImporting = false
-			m.projImportLines.reset()
-			m.projImportCancel = nil
-			m.view = ViewManageProjects
-		}
 		return m, tea.Batch(clearMessageCmd(), m.refreshCmd())
 
 	case successMsg:
 		m.err = nil
-		if m.projImporting {
-			m.projImporting = false
-			m.projImportLines.reset()
-			m.projImportCancel = nil
+		return m, m.refreshCmd()
+
+	case projSetupCompleteMsg:
+		delete(m.projSetupBuffers, msg.name)
+		if m.view == ViewProjImporting && m.projSetupName == msg.name {
 			m.view = ViewManageProjects
+			m.projSetupName = ""
 		}
 		return m, m.refreshCmd()
+
+	case projSetupFailedMsg:
+		delete(m.projSetupBuffers, msg.name)
+		m.err = msg.err
+		if m.view == ViewProjImporting && m.projSetupName == msg.name {
+			m.view = ViewManageProjects
+			m.projSetupName = ""
+		}
+		return m, tea.Batch(clearMessageCmd(), m.refreshCmd())
 
 	case clearMessageMsg:
 		m.err = nil
@@ -914,7 +931,12 @@ func (m model) handleSelectProjectKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "enter":
 		if m.selectedIndex >= 0 && m.selectedIndex < len(m.projects) {
-			m.selectedProj = m.projects[m.selectedIndex]
+			p := m.projects[m.selectedIndex]
+			if p.IsSettingUp() {
+				m.err = fmt.Errorf("project '%s' is still being set up", p.Name)
+				return m, clearMessageCmd()
+			}
+			m.selectedProj = p
 			m.branchOptions = getLocalBranches(m.selectedProj.Path)
 			m.branchFilter.SetValue("")
 			m.filteredBranches = nil
@@ -1186,7 +1208,13 @@ func (m model) handleManageProjectsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, textinput.Blink
 	case "enter":
 		if m.selectedIndex >= 0 && m.selectedIndex < len(m.projects) {
-			m.selectedProj = m.projects[m.selectedIndex]
+			p := m.projects[m.selectedIndex]
+			if p.IsSettingUp() {
+				m.projSetupName = p.Name
+				m.view = ViewProjImporting
+				return m, nil
+			}
+			m.selectedProj = p
 			m.view = ViewEditProject
 			m.editProjectForm.loadFromProject(m.selectedProj)
 			return m, textinput.Blink
@@ -1234,17 +1262,12 @@ func (m model) handleEditProjectKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		fastWTStr := strings.ToLower(strings.TrimSpace(m.editProjectForm.fastWTInput.Value()))
 		useFastWT := fastWTStr == "yes" || fastWTStr == "true" || fastWTStr == "y"
 		projName := m.selectedProj.Name
+		alreadyHasFastWT := m.selectedProj.UseFastWorktrees && m.selectedProj.FastWorktreePath != ""
 		m.editProjectForm.blurAll()
 		m.selectedProj = nil
-		if useFastWT {
-			m.view = ViewProjImporting
-			m.projImporting = true
-			m.projImportLines.reset()
-			m.newProjectName = projName
-			m.newProjectPath = path
-		} else {
-			m.view = ViewManageProjects
-			m.projImporting = false
+		m.view = ViewManageProjects
+		if useFastWT && !alreadyHasFastWT {
+			m.projSetupBuffers[projName] = &projImportBuffer{}
 		}
 		return m, m.updateProjectCmd(projName, path, baseBranch, ciWait, useFastWT)
 	}
@@ -1328,9 +1351,8 @@ func (m model) handleAddProjectFastWTKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.projectForm.pathInput.Focus()
 		return m, textinput.Blink
 	case "y":
-		m.view = ViewProjImporting
-		m.projImporting = true
-		m.projImportLines.reset()
+		m.projSetupBuffers[m.newProjectName] = &projImportBuffer{}
+		m.view = ViewManageProjects
 		return m, m.addProjectCmd(m.newProjectName, m.newProjectPath, true)
 	case "n":
 		m.view = ViewManageProjects
@@ -1342,12 +1364,7 @@ func (m model) handleAddProjectFastWTKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m model) handleProjImportingKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
-		if m.projImportCancel != nil {
-			m.projImportCancel()
-		}
-		m.projImporting = false
-		m.projImportLines.reset()
-		m.projImportCancel = nil
+		m.projSetupName = ""
 		m.view = ViewManageProjects
 	}
 	return m, nil
@@ -1512,37 +1529,55 @@ func (m model) detachCmd() tea.Cmd {
 }
 
 func (m model) addProjectCmd(name, path string, useFastWT bool) tea.Cmd {
-	buf := m.projImportLines
+	buf := m.projSetupBuffers[name]
 	return func() tea.Msg {
 		var fastWTPath string
+		needsImport := false
 		if useFastWT {
 			if project.IsProjDirectory(path) {
 				fastWTPath = path
 			} else {
-				projDir, err := project.ProjImport(path, buf.addLine)
-				if err != nil {
-					return errMsg{err}
-				}
-				fastWTPath = projDir
+				needsImport = true
 			}
+		}
+		setupStatus := ""
+		if needsImport {
+			setupStatus = project.SetupStatusSettingUp
 		}
 		p := &project.Project{
 			Name:             name,
 			Path:             path,
 			FastWorktreePath: fastWTPath,
 			UseFastWorktrees: useFastWT,
+			SetupStatus:      setupStatus,
 		}
 		if err := m.projectStore.Add(p); err != nil {
 			return errMsg{err}
+		}
+		if needsImport {
+			projDir, err := project.ProjImport(path, buf.addLine)
+			if err != nil {
+				m.projectStore.Update(name, func(p *project.Project) {
+					p.SetupStatus = ""
+					p.UseFastWorktrees = false
+				})
+				return projSetupFailedMsg{name: name, err: err}
+			}
+			m.projectStore.Update(name, func(p *project.Project) {
+				p.FastWorktreePath = projDir
+				p.SetupStatus = ""
+			})
+			return projSetupCompleteMsg{name: name}
 		}
 		return successMsg{fmt.Sprintf("Added project '%s'", name)}
 	}
 }
 
 func (m model) updateProjectCmd(name, path, baseBranch string, ciWait int, useFastWT bool) tea.Cmd {
-	buf := m.projImportLines
+	buf := m.projSetupBuffers[name]
 	return func() tea.Msg {
 		var fastWTPath string
+		needsImport := false
 		if useFastWT && path != "" {
 			existing, _ := m.projectStore.Get(name)
 			if existing != nil && existing.FastWorktreePath != "" && project.IsProjDirectory(existing.FastWorktreePath) {
@@ -1550,11 +1585,7 @@ func (m model) updateProjectCmd(name, path, baseBranch string, ciWait int, useFa
 			} else if project.IsProjDirectory(path) {
 				fastWTPath = path
 			} else {
-				projDir, err := project.ProjImport(path, buf.addLine)
-				if err != nil {
-					return errMsg{err}
-				}
-				fastWTPath = projDir
+				needsImport = true
 			}
 		}
 		err := m.projectStore.Update(name, func(p *project.Project) {
@@ -1567,9 +1598,27 @@ func (m model) updateProjectCmd(name, path, baseBranch string, ciWait int, useFa
 			p.DefaultBaseBranch = baseBranch
 			p.CIWaitMinutes = ciWait
 			p.UseFastWorktrees = useFastWT
+			if needsImport {
+				p.SetupStatus = project.SetupStatusSettingUp
+			}
 		})
 		if err != nil {
 			return errMsg{err}
+		}
+		if needsImport {
+			projDir, err := project.ProjImport(path, buf.addLine)
+			if err != nil {
+				m.projectStore.Update(name, func(p *project.Project) {
+					p.SetupStatus = ""
+					p.UseFastWorktrees = false
+				})
+				return projSetupFailedMsg{name: name, err: err}
+			}
+			m.projectStore.Update(name, func(p *project.Project) {
+				p.FastWorktreePath = projDir
+				p.SetupStatus = ""
+			})
+			return projSetupCompleteMsg{name: name}
 		}
 		return successMsg{fmt.Sprintf("Updated project '%s'", name)}
 	}
