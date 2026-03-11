@@ -88,6 +88,8 @@ func renderMainView(m model) string {
 	} else {
 		b.WriteString("  " + dimStyle.Render(version.Version))
 	}
+	b.WriteString("\n")
+	b.WriteString("  " + dimStyle.Render("hello world"))
 	b.WriteString("\n\n")
 
 	b.WriteString(headerStyle.Render(fmt.Sprintf("# Agents (%d)", len(m.agents))))
