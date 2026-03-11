@@ -2,6 +2,7 @@
 package tui
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -650,11 +651,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		activeWaiting := make(map[string]bool)
 		var cmds []tea.Cmd
 		const ciPollInterval = 30 * time.Second
-		const ciInitialGrace = 1 * time.Minute
 		for _, a := range m.agents {
 			if a.Status == agent.StatusWaitingCI && a.PRURL != "" {
 				activeWaiting[a.ID] = true
-				if time.Since(a.UpdatedAt) < ciInitialGrace {
+				ciWaitMinutes := project.DefaultCIWaitMinutes
+				if p, ok := projectMap[a.ProjectName]; ok {
+					ciWaitMinutes = p.EffectiveCIWaitMinutes()
+				}
+				if time.Since(a.UpdatedAt) < time.Duration(ciWaitMinutes)*time.Minute {
 					continue
 				}
 				if !m.ciChecking[a.ID] {
@@ -1868,8 +1872,13 @@ ccmux agent-stopped "$AGENT_ID"
 }
 
 type prCheckResult struct {
-	Name  string `json:"name"`
-	State string `json:"state"`
+	Name       string `json:"name"`
+	Status     string `json:"status"`
+	Conclusion string `json:"conclusion"`
+}
+
+type statusCheckRollupResponse struct {
+	StatusCheckRollup []prCheckResult `json:"statusCheckRollup"`
 }
 
 func parsePRURL(prURL string) (owner, repo, prNumber string, err error) {
@@ -1899,10 +1908,18 @@ func evaluateCIChecks(checks []prCheckResult) (status ciStatus, failedNames []st
 
 	hasPending := false
 	for _, c := range checks {
-		switch strings.ToUpper(c.State) {
-		case "FAILURE", "ERROR", "CANCELLED", "ACTION_REQUIRED", "TIMED_OUT", "STARTUP_FAILURE":
-			failedNames = append(failedNames, c.Name)
-		case "PENDING", "QUEUED", "IN_PROGRESS", "WAITING", "REQUESTED", "":
+		st := strings.ToUpper(c.Status)
+		concl := strings.ToUpper(c.Conclusion)
+
+		if st == "COMPLETED" {
+			switch concl {
+			case "SUCCESS", "NEUTRAL", "SKIPPED":
+			case "FAILURE", "ERROR", "CANCELLED", "ACTION_REQUIRED", "TIMED_OUT", "STARTUP_FAILURE":
+				failedNames = append(failedNames, c.Name)
+			default:
+				failedNames = append(failedNames, c.Name)
+			}
+		} else {
 			hasPending = true
 		}
 	}
@@ -1923,19 +1940,21 @@ func checkPRChecksCmd(agentID, prURL, worktreePath string) tea.Cmd {
 			return ciCheckResultMsg{agentID: agentID, err: err}
 		}
 
-		cmd := exec.Command("gh", "pr", "checks", prNumber, "--repo", owner+"/"+repo, "--json", "name,state")
-		cmd.Dir = worktreePath
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		cmd := exec.CommandContext(ctx, "gh", "pr", "view", prNumber, "--repo", owner+"/"+repo, "--json", "statusCheckRollup")
 		output, err := cmd.Output()
 		if err != nil {
 			return ciCheckResultMsg{agentID: agentID, err: err}
 		}
 
-		var checks []prCheckResult
-		if err := json.Unmarshal(output, &checks); err != nil {
+		var resp statusCheckRollupResponse
+		if err := json.Unmarshal(output, &resp); err != nil {
 			return ciCheckResultMsg{agentID: agentID, err: err}
 		}
 
-		status, failedNames := evaluateCIChecks(checks)
+		status, failedNames := evaluateCIChecks(resp.StatusCheckRollup)
 		var summary string
 		if status == ciStatusFailed {
 			summary = fmt.Sprintf("CI checks failed: %s", strings.Join(failedNames, ", "))
