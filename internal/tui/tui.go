@@ -263,6 +263,7 @@ func findProjectPath(name string) string {
 		homeDir + "/dev",
 		homeDir + "/work",
 		homeDir + "/repos",
+		"/mnt/data/proj/projects",
 	}
 
 	for _, dir := range searchDirs {
