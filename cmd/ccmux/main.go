@@ -58,7 +58,6 @@ Examples:
 		queueAddCmd(),
 		prReadyCmd(),
 		ciWaitCmd(),
-		needHelpCmd(),
 		agentStoppedCmd(),
 		focusCmd(),
 		cleanupCmd(),
@@ -359,16 +358,6 @@ ccmux agent-stopped "$CCMUX_AGENT_ID"
 HOOKEOF
 chmod +x .claude/hooks/stop.sh
 
-cat > .claude/hooks/ask-user.sh << 'HOOKEOF'
-#!/bin/bash
-INPUT=$(cat)
-QUESTIONS=$(echo "$INPUT" | jq -r '.tool_input.questions[]?.question // empty' 2>/dev/null | head -5 | tr '\n' ' ')
-if [ -n "$QUESTIONS" ]; then
-  ccmux need-help "$QUESTIONS" 2>/dev/null || true
-fi
-HOOKEOF
-chmod +x .claude/hooks/ask-user.sh
-
 cat > .claude/settings.json << SETTINGSEOF
 {
   "hooks": {
@@ -378,17 +367,6 @@ cat > .claude/settings.json << SETTINGSEOF
           {
             "type": "command",
             "command": "CCMUX_AGENT_ID=$AGENT_ID $WORKTREE_PATH/.claude/hooks/stop.sh"
-          }
-        ]
-      }
-    ],
-    "PreToolUse": [
-      {
-        "matcher": "AskUserQuestion",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "CCMUX_AGENT_ID=$AGENT_ID $WORKTREE_PATH/.claude/hooks/ask-user.sh"
           }
         ]
       }
@@ -428,8 +406,6 @@ unset CLAUDECODE
 PR_BASE_BRANCH="${BASE_BRANCH#origin/}"
 
 SYSTEM_PROMPT="You are working on a task as part of the ccmux agent system. Environment variable CCMUX_AGENT_ID=$AGENT_ID is set for hook integration.
-
-If you are blocked or unsure about requirements, use the AskUserQuestion tool rather than guessing.
 
 When done with your task:
 1. Commit your work and create a PR with: gh pr create --draft --base $PR_BASE_BRANCH --title \"...\" --body \"...\"
@@ -609,31 +585,6 @@ func getPRTitle(prURL string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(output))
-}
-
-func needHelpCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:    "need-help <description>",
-		Hidden: true,
-		Args:   cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			description := args[0]
-
-			agentID := os.Getenv("CCMUX_AGENT_ID")
-			if agentID == "" {
-				return fmt.Errorf("CCMUX_AGENT_ID environment variable not set")
-			}
-
-			sessionID := getCurrentSessionID()
-			queueManager, err := queue.NewQueue(sessionID)
-			if err != nil {
-				return err
-			}
-
-			_, err = queueManager.Add(queue.ItemTypeQuestion, agentID, description, description)
-			return err
-		},
-	}
 }
 
 func agentStoppedCmd() *cobra.Command {
@@ -1010,16 +961,6 @@ ccmux agent-stopped "$CCMUX_AGENT_ID"
 HOOKEOF
 chmod +x .claude/hooks/stop.sh
 
-cat > .claude/hooks/ask-user.sh << 'HOOKEOF'
-#!/bin/bash
-INPUT=$(cat)
-QUESTIONS=$(echo "$INPUT" | jq -r '.tool_input.questions[]?.question // empty' 2>/dev/null | head -5 | tr '\n' ' ')
-if [ -n "$QUESTIONS" ]; then
-  ccmux need-help "$QUESTIONS" 2>/dev/null || true
-fi
-HOOKEOF
-chmod +x .claude/hooks/ask-user.sh
-
 cat > .claude/settings.json << SETTINGSEOF
 {
   "hooks": {
@@ -1029,17 +970,6 @@ cat > .claude/settings.json << SETTINGSEOF
           {
             "type": "command",
             "command": "CCMUX_AGENT_ID=$AGENT_ID $WORKTREE_PATH/.claude/hooks/stop.sh"
-          }
-        ]
-      }
-    ],
-    "PreToolUse": [
-      {
-        "matcher": "AskUserQuestion",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "CCMUX_AGENT_ID=$AGENT_ID $WORKTREE_PATH/.claude/hooks/ask-user.sh"
           }
         ]
       }
@@ -1059,8 +989,6 @@ PR_BASE_BRANCH="${BASE_BRANCH#origin/}"
 SYSTEM_PROMPT="You are working on a task as part of the ccmux agent system. Environment variable CCMUX_AGENT_ID=$AGENT_ID is set for hook integration.
 
 IMPORTANT: Your previous session was interrupted by a session loss (e.g., tmux crash or reboot). You are being resumed with --continue. Review your progress so far and continue where you left off.
-
-If you are blocked or unsure about requirements, use the AskUserQuestion tool rather than guessing.
 
 When done with your task:
 1. Commit your work and create a PR with: gh pr create --draft --base $PR_BASE_BRANCH --title \"...\" --body \"...\"

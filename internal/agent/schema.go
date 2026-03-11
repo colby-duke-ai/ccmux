@@ -24,7 +24,7 @@ func (s Status) DisplayName() string {
 	case StatusRunning:
 		return "running"
 	case StatusReady:
-		return "ready"
+		return "idle"
 	case StatusWaitingCI:
 		return "waiting on CI"
 	case StatusCleaningUp:
