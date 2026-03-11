@@ -263,7 +263,10 @@ func findProjectPath(name string) string {
 		homeDir + "/dev",
 		homeDir + "/work",
 		homeDir + "/repos",
-		"/mnt/data/proj/projects",
+	}
+
+	if projRoot := os.Getenv("PROJ_ROOT"); projRoot != "" {
+		searchDirs = append(searchDirs, projRoot+"/projects")
 	}
 
 	for _, dir := range searchDirs {
