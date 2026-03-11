@@ -2075,10 +2075,10 @@ export CCMUX_AGENT_ID="$AGENT_ID"
 unset CLAUDECODE
 
 claude --continue --dangerously-skip-permissions \
-  "The PR at %s has merge conflicts with the base branch (%s). Resolve the merge conflicts by rebasing: git fetch origin && git rebase origin/%s -- Resolve any conflicts, then git add the resolved files and git rebase --continue. After resolving all conflicts, push with: git push --force-with-lease -- Then run: ccmux ci-wait %s"
+  "The PR at %s has merge conflicts with the base branch (%s). Resolve the merge conflicts, push your changes, then run: ccmux ci-wait %s"
 
 ccmux agent-stopped "$AGENT_ID"
-`, agentID, worktreePath, prURL, baseBranch, baseBranch, prURL)
+`, agentID, worktreePath, prURL, baseBranch, prURL)
 
 	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
 		return "", err
