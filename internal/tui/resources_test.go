@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -461,5 +462,101 @@ func TestFindDescendants_ShouldReturnOnlyRoot_GivenNoChildren(t *testing.T) {
 	}
 	if result[0] != 100 {
 		t.Errorf("expected root PID 100, got %d", result[0])
+	}
+}
+
+func TestEstimateCost_ShouldUseNewOpusPricing_GivenOpus46(t *testing.T) {
+	// Setup.
+	usage := claudeUsage{
+		InputTokens:              1000,
+		OutputTokens:             1000,
+		CacheReadInputTokens:     1_000_000,
+		CacheCreationInputTokens: 100_000,
+	}
+
+	// Execute.
+	cost := estimateCost("claude-opus-4-6", usage)
+
+	// Assert.
+	expected := 1000*5.0/1e6 + 1000*25.0/1e6 + 1_000_000*0.50/1e6 + 100_000*6.25/1e6
+	if cost != expected {
+		t.Errorf("expected %.6f, got %.6f", expected, cost)
+	}
+}
+
+func TestEstimateCost_ShouldUseOldOpusPricing_GivenOpus4(t *testing.T) {
+	// Setup.
+	usage := claudeUsage{
+		InputTokens:              1000,
+		OutputTokens:             1000,
+		CacheReadInputTokens:     1_000_000,
+		CacheCreationInputTokens: 100_000,
+	}
+
+	// Execute.
+	cost := estimateCost("claude-opus-4-20250514", usage)
+
+	// Assert.
+	expected := 1000*15.0/1e6 + 1000*75.0/1e6 + 1_000_000*1.50/1e6 + 100_000*18.75/1e6
+	if cost != expected {
+		t.Errorf("expected %.6f, got %.6f", expected, cost)
+	}
+}
+
+func TestEstimateCost_ShouldUseSonnetPricing_GivenSonnet(t *testing.T) {
+	// Setup.
+	usage := claudeUsage{
+		InputTokens:  10_000,
+		OutputTokens: 5_000,
+	}
+
+	// Execute.
+	cost := estimateCost("claude-sonnet-4-20250514", usage)
+
+	// Assert.
+	expected := 10_000*3.0/1e6 + 5_000*15.0/1e6
+	if cost != expected {
+		t.Errorf("expected %.6f, got %.6f", expected, cost)
+	}
+}
+
+func TestEstimateCost_ShouldUseHaikuPricing_GivenHaiku(t *testing.T) {
+	// Setup.
+	usage := claudeUsage{
+		InputTokens:          10_000,
+		OutputTokens:         5_000,
+		CacheReadInputTokens: 100_000,
+	}
+
+	// Execute.
+	cost := estimateCost("claude-haiku-4-5-20251001", usage)
+
+	// Assert.
+	expected := 10_000*1.0/1e6 + 5_000*5.0/1e6 + 100_000*0.10/1e6
+	if math.Abs(cost-expected) > 1e-10 {
+		t.Errorf("expected %.6f, got %.6f", expected, cost)
+	}
+}
+
+func TestIsNewOpus_ShouldReturnTrue_GivenOpus45Plus(t *testing.T) {
+	// Assert.
+	if !isNewOpus("claude-opus-4-5-20251101") {
+		t.Error("expected true for opus-4-5")
+	}
+	if !isNewOpus("claude-opus-4-6") {
+		t.Error("expected true for opus-4-6")
+	}
+}
+
+func TestIsNewOpus_ShouldReturnFalse_GivenOldOpus(t *testing.T) {
+	// Assert.
+	if isNewOpus("claude-opus-4-20250514") {
+		t.Error("expected false for opus-4")
+	}
+	if isNewOpus("claude-opus-4-1-20250805") {
+		t.Error("expected false for opus-4-1")
+	}
+	if isNewOpus("claude-opus-3") {
+		t.Error("expected false for opus-3")
 	}
 }

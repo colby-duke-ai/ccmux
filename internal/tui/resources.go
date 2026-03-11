@@ -460,31 +460,40 @@ func getAgentSessionTokens(worktreePath string) tokenBreakdown {
 }
 
 func estimateCost(model string, u claudeUsage) float64 {
-	var inputPer1M, outputPer1M, cacheReadPer1M, cacheCreatePer1M float64
+	var inputPer1M, outputPer1M float64
 
 	switch {
+	case isNewOpus(model):
+		inputPer1M = 5.0
+		outputPer1M = 25.0
 	case strings.Contains(model, "opus"):
 		inputPer1M = 15.0
 		outputPer1M = 75.0
-		cacheReadPer1M = 1.50
-		cacheCreatePer1M = 18.75
 	case strings.Contains(model, "haiku"):
-		inputPer1M = 0.80
-		outputPer1M = 4.0
-		cacheReadPer1M = 0.08
-		cacheCreatePer1M = 1.0
+		inputPer1M = 1.0
+		outputPer1M = 5.0
 	default:
 		inputPer1M = 3.0
 		outputPer1M = 15.0
-		cacheReadPer1M = 0.30
-		cacheCreatePer1M = 3.75
 	}
+
+	cacheReadPer1M := inputPer1M * 0.10
+	cacheCreatePer1M := inputPer1M * 1.25
 
 	cost := float64(u.InputTokens) * inputPer1M / 1_000_000
 	cost += float64(u.OutputTokens) * outputPer1M / 1_000_000
 	cost += float64(u.CacheReadInputTokens) * cacheReadPer1M / 1_000_000
 	cost += float64(u.CacheCreationInputTokens) * cacheCreatePer1M / 1_000_000
 	return cost
+}
+
+func isNewOpus(model string) bool {
+	return strings.Contains(model, "opus-4-5") ||
+		strings.Contains(model, "opus-4-6") ||
+		strings.Contains(model, "opus-4-7") ||
+		strings.Contains(model, "opus-4-8") ||
+		strings.Contains(model, "opus-4-9") ||
+		strings.Contains(model, "opus-5")
 }
 
 func formatTokens(tokens int64) string {
