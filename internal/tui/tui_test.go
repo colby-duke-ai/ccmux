@@ -608,8 +608,28 @@ func TestParsePRURL_ShouldReturnError_GivenInvalidURL(t *testing.T) {
 func TestEvaluateCIChecks_ShouldReturnPassed_GivenAllSuccess(t *testing.T) {
 	// Setup.
 	checks := []prCheckResult{
-		{Name: "build", State: "SUCCESS"},
-		{Name: "lint", State: "SUCCESS"},
+		{Name: "build", Status: "COMPLETED", Conclusion: "SUCCESS"},
+		{Name: "lint", Status: "COMPLETED", Conclusion: "SUCCESS"},
+	}
+
+	// Execute.
+	status, failed := evaluateCIChecks(checks)
+
+	// Assert.
+	if status != ciStatusPassed {
+		t.Errorf("expected ciStatusPassed, got %d", status)
+	}
+	if len(failed) != 0 {
+		t.Errorf("expected no failures, got %v", failed)
+	}
+}
+
+func TestEvaluateCIChecks_ShouldReturnPassed_GivenSkippedAndNeutral(t *testing.T) {
+	// Setup.
+	checks := []prCheckResult{
+		{Name: "build", Status: "COMPLETED", Conclusion: "SUCCESS"},
+		{Name: "optional", Status: "COMPLETED", Conclusion: "SKIPPED"},
+		{Name: "info", Status: "COMPLETED", Conclusion: "NEUTRAL"},
 	}
 
 	// Execute.
@@ -627,9 +647,9 @@ func TestEvaluateCIChecks_ShouldReturnPassed_GivenAllSuccess(t *testing.T) {
 func TestEvaluateCIChecks_ShouldReturnFailed_GivenAnyFailure(t *testing.T) {
 	// Setup.
 	checks := []prCheckResult{
-		{Name: "build", State: "SUCCESS"},
-		{Name: "lint", State: "FAILURE"},
-		{Name: "test", State: "ERROR"},
+		{Name: "build", Status: "COMPLETED", Conclusion: "SUCCESS"},
+		{Name: "lint", Status: "COMPLETED", Conclusion: "FAILURE"},
+		{Name: "test", Status: "COMPLETED", Conclusion: "ERROR"},
 	}
 
 	// Execute.
@@ -650,8 +670,8 @@ func TestEvaluateCIChecks_ShouldReturnFailed_GivenAnyFailure(t *testing.T) {
 func TestEvaluateCIChecks_ShouldReturnPending_GivenAnyPendingAndNoFailures(t *testing.T) {
 	// Setup.
 	checks := []prCheckResult{
-		{Name: "build", State: "SUCCESS"},
-		{Name: "test", State: "IN_PROGRESS"},
+		{Name: "build", Status: "COMPLETED", Conclusion: "SUCCESS"},
+		{Name: "test", Status: "IN_PROGRESS", Conclusion: ""},
 	}
 
 	// Execute.
@@ -682,8 +702,8 @@ func TestEvaluateCIChecks_ShouldReturnPending_GivenNoChecks(t *testing.T) {
 func TestEvaluateCIChecks_ShouldReturnFailed_GivenFailureAndPending(t *testing.T) {
 	// Setup.
 	checks := []prCheckResult{
-		{Name: "build", State: "FAILURE"},
-		{Name: "test", State: "PENDING"},
+		{Name: "build", Status: "COMPLETED", Conclusion: "FAILURE"},
+		{Name: "test", Status: "QUEUED", Conclusion: ""},
 	}
 
 	// Execute.
