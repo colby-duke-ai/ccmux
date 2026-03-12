@@ -520,6 +520,9 @@ func (m model) refreshCmd() tea.Cmd {
 				_, hasIdleItem := idleItemByAgent[a.ID]
 
 				if isIdle && !hasIdleItem {
+					m.agentStore.Update(a.ID, func(ag *agent.Agent) {
+						ag.Status = agent.StatusReady
+					})
 					m.queueManager.Add(queue.ItemTypeIdle, a.ID, "Agent idle - waiting for input", "")
 					changed = true
 				} else if !isIdle && hasIdleItem {
