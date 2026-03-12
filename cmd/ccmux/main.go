@@ -14,6 +14,7 @@ import (
 	"github.com/CDFalcon/ccmux/internal/logging"
 	"github.com/CDFalcon/ccmux/internal/project"
 	"github.com/CDFalcon/ccmux/internal/queue"
+	"github.com/CDFalcon/ccmux/internal/settings"
 	"github.com/CDFalcon/ccmux/internal/tmux"
 	"github.com/CDFalcon/ccmux/internal/tui"
 	"github.com/CDFalcon/ccmux/internal/updater"
@@ -174,7 +175,12 @@ func runSession(sessionID string) error {
 		return err
 	}
 
-	restart, err := tui.Run(agentStore, queueManager, projectStore, tmuxManager, sessionID)
+	settingsStore, err := settings.NewStore()
+	if err != nil {
+		return err
+	}
+
+	restart, err := tui.Run(agentStore, queueManager, projectStore, tmuxManager, settingsStore, sessionID)
 	if err != nil {
 		return err
 	}
@@ -192,6 +198,7 @@ func spawnCmd() *cobra.Command {
 	var projectName string
 	var baseBranch string
 	var worktreeName string
+	var extraPrompt string
 
 	cmd := &cobra.Command{
 		Use:    "spawn <task>",
@@ -225,7 +232,7 @@ func spawnCmd() *cobra.Command {
 			tmuxSessionName := fmt.Sprintf("ccmux-%s", sessionID)
 			tmuxManager := tmux.NewManager(tmuxSessionName)
 
-			launcherScript, err := writeLauncherScript(agentID, task, proj.EffectivePath(), baseBranch, sessionID, proj.UseFastWorktrees, sanitizeWorktreeName(worktreeName))
+			launcherScript, err := writeLauncherScript(agentID, task, proj.EffectivePath(), baseBranch, sessionID, proj.UseFastWorktrees, sanitizeWorktreeName(worktreeName), extraPrompt)
 			if err != nil {
 				return fmt.Errorf("failed to create launcher script: %w", err)
 			}
@@ -265,12 +272,13 @@ func spawnCmd() *cobra.Command {
 	cmd.Flags().StringVar(&projectName, "project", "", "Project to use")
 	cmd.Flags().StringVar(&baseBranch, "branch", "", "Base branch to create worktree from (default: origin/master)")
 	cmd.Flags().StringVar(&worktreeName, "worktree-name", "", "Optional human-readable name for the worktree and branch")
+	cmd.Flags().StringVar(&extraPrompt, "extra-prompt", "", "Additional text to append to the agent's system prompt")
 	cmd.MarkFlagRequired("project")
 
 	return cmd
 }
 
-func writeLauncherScript(agentID, task, repoPath, baseBranch, sessionID string, useFastWorktrees bool, worktreeName string) (string, error) {
+func writeLauncherScript(agentID, task, repoPath, baseBranch, sessionID string, useFastWorktrees bool, worktreeName string, extraPrompt string) (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
@@ -434,6 +442,14 @@ if [ -f "$CLAUDE_MD_PATH" ]; then
 ${CLAUDE_MD_CONTENT}"
 fi
 
+EXTRA_PROMPT_PATH="$HOME/.ccmux/launchers/$AGENT_ID-prompt.txt"
+if [ -f "$EXTRA_PROMPT_PATH" ]; then
+  EXTRA_PROMPT_CONTENT=$(cat "$EXTRA_PROMPT_PATH")
+  SYSTEM_PROMPT="${SYSTEM_PROMPT}
+
+${EXTRA_PROMPT_CONTENT}"
+fi
+
 claude --dangerously-skip-permissions --system-prompt "$SYSTEM_PROMPT" \
   "$TASK"
 
@@ -442,6 +458,13 @@ ccmux agent-stopped "$AGENT_ID"
 
 	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
 		return "", err
+	}
+
+	if extraPrompt != "" {
+		promptPath := filepath.Join(launcherDir, agentID+"-prompt.txt")
+		if err := os.WriteFile(promptPath, []byte(extraPrompt), 0644); err != nil {
+			return "", err
+		}
 	}
 
 	return scriptPath, nil

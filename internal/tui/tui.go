@@ -21,6 +21,7 @@ import (
 	"github.com/CDFalcon/ccmux/internal/agent"
 	"github.com/CDFalcon/ccmux/internal/project"
 	"github.com/CDFalcon/ccmux/internal/queue"
+	"github.com/CDFalcon/ccmux/internal/settings"
 	"github.com/CDFalcon/ccmux/internal/tmux"
 	"github.com/CDFalcon/ccmux/internal/updater"
 	"github.com/CDFalcon/ccmux/internal/version"
@@ -46,6 +47,12 @@ type model struct {
 	spawnBranch           string
 	spawnTask             string
 	worktreeNameInput     textinput.Model
+	spawnWorktreeName     string
+
+	// Prompt selection (per-task)
+	availablePrompts  []settings.Prompt
+	promptSelections  []bool
+	settingsStore     *settings.Store
 
 	// Project form inputs
 	projectForm     projectFormModel
@@ -414,7 +421,7 @@ func newFixedTextarea(placeholder string, width int) textarea.Model {
 	return ta
 }
 
-func initialModel(agentStore *agent.Store, queueManager *queue.Queue, projectStore *project.Store, tmuxManager *tmux.Manager, sessionID string) model {
+func initialModel(agentStore *agent.Store, queueManager *queue.Queue, projectStore *project.Store, tmuxManager *tmux.Manager, settingsStore *settings.Store, sessionID string) model {
 	taskInput := newFixedTextarea("Describe the task...", 60)
 	branchInput := textinput.New()
 	branchInput.Placeholder = "origin/master"
@@ -457,6 +464,7 @@ func initialModel(agentStore *agent.Store, queueManager *queue.Queue, projectSto
 		queueManager:      queueManager,
 		projectStore:      projectStore,
 		tmuxManager:       tmuxManager,
+		settingsStore:     settingsStore,
 		sessionID:         sessionID,
 	}
 }
@@ -904,6 +912,8 @@ func (m model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleNewTaskInputKeys(msg)
 	case ViewNewTaskWorktreeName:
 		return m.handleNewTaskWorktreeNameKeys(msg)
+	case ViewNewTaskPrompts:
+		return m.handleNewTaskPromptsKeys(msg)
 	case ViewIntervene:
 		return m.handleInterveneKeys(msg)
 	case ViewInterveneInput:
@@ -1125,6 +1135,18 @@ func (m model) handleNewTaskInputKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.spawnTask = task
 		m.taskInput.Blur()
+
+		// Load prompts and initialize default selections for this task.
+		if m.settingsStore != nil {
+			if s, err := m.settingsStore.Load(); err == nil {
+				m.availablePrompts = s.Prompts
+				m.promptSelections = make([]bool, len(s.Prompts))
+				for i, p := range s.Prompts {
+					m.promptSelections[i] = p.Default
+				}
+			}
+		}
+
 		m.view = ViewNewTaskWorktreeName
 		m.worktreeNameInput.SetValue("")
 		m.worktreeNameInput.Focus()
@@ -1144,24 +1166,80 @@ func (m model) handleNewTaskWorktreeNameKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd
 		cmd := m.taskInput.Focus()
 		return m, cmd
 	case "enter":
-		worktreeName := m.worktreeNameInput.Value()
-		task := m.spawnTask
-		proj := m.selectedProj
-		branch := m.spawnBranch
-		m.view = ViewMain
-		m.taskInput.SetValue("")
-		m.taskInput.Blur()
-		m.worktreeNameInput.SetValue("")
+		m.spawnWorktreeName = m.worktreeNameInput.Value()
 		m.worktreeNameInput.Blur()
-		m.selectedProj = nil
-		m.spawnBranch = ""
-		m.spawnTask = ""
-		return m, m.spawnAgentCmd(task, proj, branch, worktreeName)
+
+		// If prompts are configured, go to prompt selection; otherwise spawn immediately.
+		if len(m.availablePrompts) > 0 {
+			m.view = ViewNewTaskPrompts
+			m.selectedIndex = 0
+			return m, nil
+		}
+
+		return m.doSpawn()
 	}
 
 	var cmd tea.Cmd
 	m.worktreeNameInput, cmd = m.worktreeNameInput.Update(msg)
 	return m, cmd
+}
+
+func (m model) handleNewTaskPromptsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.view = ViewNewTaskWorktreeName
+		m.selectedIndex = 0
+		cmd := m.worktreeNameInput.Focus()
+		return m, cmd
+	case "up", "k":
+		if m.selectedIndex > 0 {
+			m.selectedIndex--
+		}
+	case "down", "j":
+		if m.selectedIndex < len(m.availablePrompts)-1 {
+			m.selectedIndex++
+		}
+	case " ":
+		if m.selectedIndex >= 0 && m.selectedIndex < len(m.promptSelections) {
+			m.promptSelections[m.selectedIndex] = !m.promptSelections[m.selectedIndex]
+		}
+	case "enter":
+		return m.doSpawn()
+	}
+	return m, nil
+}
+
+// doSpawn collects state, clears task-creation fields, and issues the spawn command.
+// Returns the updated model and the spawn command.
+func (m model) doSpawn() (tea.Model, tea.Cmd) {
+	task := m.spawnTask
+	proj := m.selectedProj
+	branch := m.spawnBranch
+	worktreeName := m.spawnWorktreeName
+
+	var extraPrompt string
+	for i, p := range m.availablePrompts {
+		if i < len(m.promptSelections) && m.promptSelections[i] {
+			if extraPrompt != "" {
+				extraPrompt += "\n\n"
+			}
+			extraPrompt += p.Prompt
+		}
+	}
+
+	m.view = ViewMain
+	m.taskInput.SetValue("")
+	m.taskInput.Blur()
+	m.worktreeNameInput.SetValue("")
+	m.worktreeNameInput.Blur()
+	m.selectedProj = nil
+	m.spawnBranch = ""
+	m.spawnTask = ""
+	m.spawnWorktreeName = ""
+	m.availablePrompts = nil
+	m.promptSelections = nil
+
+	return m, m.spawnAgentCmd(task, proj, branch, worktreeName, extraPrompt)
 }
 
 func (m model) handleInterveneKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -1746,7 +1824,7 @@ func (m model) removeProjectCmd(name string) tea.Cmd {
 	}
 }
 
-func (m model) spawnAgentCmd(task string, proj *project.Project, branch string, worktreeName string) tea.Cmd {
+func (m model) spawnAgentCmd(task string, proj *project.Project, branch string, worktreeName string, extraPrompt string) tea.Cmd {
 	return func() tea.Msg {
 		exePath, err := os.Executable()
 		if err != nil {
@@ -1755,6 +1833,9 @@ func (m model) spawnAgentCmd(task string, proj *project.Project, branch string, 
 		args := []string{"spawn", task, "--project", proj.Name, "--branch", branch}
 		if worktreeName != "" {
 			args = append(args, "--worktree-name", worktreeName)
+		}
+		if extraPrompt != "" {
+			args = append(args, "--extra-prompt", extraPrompt)
 		}
 		cmd := exec.Command(exePath, args...)
 		output, err := cmd.CombinedOutput()
@@ -2267,6 +2348,8 @@ func (m model) View() string {
 		content = renderNewTaskInputView(m)
 	case ViewNewTaskWorktreeName:
 		content = renderNewTaskWorktreeNameView(m)
+	case ViewNewTaskPrompts:
+		content = renderNewTaskPromptsView(m, m.availablePrompts, m.promptSelections)
 	case ViewIntervene:
 		content = renderInterveneView(m)
 	case ViewInterveneInput:
@@ -2306,8 +2389,8 @@ func (m model) View() string {
 	return content
 }
 
-func Run(agentStore *agent.Store, queueManager *queue.Queue, projectStore *project.Store, tmuxManager *tmux.Manager, sessionID string) (bool, error) {
-	m := initialModel(agentStore, queueManager, projectStore, tmuxManager, sessionID)
+func Run(agentStore *agent.Store, queueManager *queue.Queue, projectStore *project.Store, tmuxManager *tmux.Manager, settingsStore *settings.Store, sessionID string) (bool, error) {
+	m := initialModel(agentStore, queueManager, projectStore, tmuxManager, settingsStore, sessionID)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	finalModel, err := p.Run()
 	if err != nil {

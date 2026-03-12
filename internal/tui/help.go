@@ -20,6 +20,7 @@ var viewTitles = map[ViewState]string{
 	ViewNewTaskBranchInput:   "New Task - Specify Branch",
 	ViewNewTaskInput:         "New Task",
 	ViewNewTaskWorktreeName:  "New Task - Branch Name",
+	ViewNewTaskPrompts:       "New Task - Prompts",
 	ViewIntervene:            "Intervene",
 	ViewInterveneInput:       "Send Message",
 	ViewReview:               "Review PR",
@@ -66,8 +67,14 @@ var viewHelpCommands = map[ViewState][]helpCommand{
 		{FooterText: "[esc] back", Description: "Return to branch selection"},
 	},
 	ViewNewTaskWorktreeName: {
-		{FooterText: "[enter] spawn", Description: "Spawn the agent (name is optional)"},
+		{FooterText: "[enter] next", Description: "Continue to prompt selection (or spawn if no prompts configured)"},
 		{FooterText: "[esc] back", Description: "Return to task description"},
+	},
+	ViewNewTaskPrompts: {
+		{FooterText: "[↑/↓/j/k] select", Description: "Navigate the prompt list"},
+		{FooterText: "[space] toggle", Description: "Toggle the selected prompt on or off"},
+		{FooterText: "[enter] spawn", Description: "Spawn the agent with selected prompts"},
+		{FooterText: "[esc] back", Description: "Return to branch name"},
 	},
 	ViewIntervene: {
 		{FooterText: "[↑/↓/j/k] select", Description: "Navigate the agent list"},

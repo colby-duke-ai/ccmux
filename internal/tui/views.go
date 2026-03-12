@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/CDFalcon/ccmux/internal/agent"
 	"github.com/CDFalcon/ccmux/internal/queue"
+	"github.com/CDFalcon/ccmux/internal/settings"
 	"github.com/CDFalcon/ccmux/internal/updater"
 	"github.com/CDFalcon/ccmux/internal/version"
 )
@@ -22,6 +23,7 @@ const (
 	ViewNewTaskBranchInput
 	ViewNewTaskInput
 	ViewNewTaskWorktreeName
+	ViewNewTaskPrompts
 	ViewIntervene
 	ViewInterveneInput
 	ViewReview
@@ -350,6 +352,45 @@ func renderNewTaskWorktreeNameView(m model) string {
 	b.WriteString("\n\n")
 
 	help := helpFooter(ViewNewTaskWorktreeName)
+	b.WriteString(renderFooter(help, m.ctrlCPressed))
+
+	return b.String()
+}
+
+func renderNewTaskPromptsView(m model, prompts []settings.Prompt, selections []bool) string {
+	var b strings.Builder
+
+	b.WriteString(titleStyle.Render("# New Task - Prompts"))
+	b.WriteString("\n\n")
+
+	if m.selectedProj != nil {
+		b.WriteString(fmt.Sprintf("Project: %s\n", projectStyle.Render(m.selectedProj.Name)))
+		b.WriteString(fmt.Sprintf("Task: %s\n", dimStyle.Render(truncate(m.spawnTask, 50))))
+		b.WriteString("\n")
+	}
+
+	b.WriteString("Select prompts to inject into the agent's system prompt:\n\n")
+
+	for i, p := range prompts {
+		style := queueItemStyle
+		if i == m.selectedIndex {
+			style = selectedItemStyle
+		}
+		checkbox := "[ ]"
+		if i < len(selections) && selections[i] {
+			checkbox = "[✓]"
+		}
+		b.WriteString(style.Render(fmt.Sprintf("%s %s", checkbox, p.Name)))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+
+	if m.selectedIndex >= 0 && m.selectedIndex < len(prompts) {
+		b.WriteString(dimStyle.Render(truncate(prompts[m.selectedIndex].Prompt, 120)))
+		b.WriteString("\n\n")
+	}
+
+	help := helpFooter(ViewNewTaskPrompts)
 	b.WriteString(renderFooter(help, m.ctrlCPressed))
 
 	return b.String()
