@@ -351,6 +351,16 @@ func renderNewTaskWorktreeNameView(m model) string {
 		b.WriteString(fmt.Sprintf("Base branch: %s\n", dimStyle.Render(m.spawnBranch)))
 	}
 	b.WriteString(fmt.Sprintf("Task: %s\n", dimStyle.Render(m.spawnTask)))
+
+	var enabledNames []string
+	for _, p := range m.spawnFilteredPrompts {
+		if m.spawnPromptEnabled[p.ID] {
+			enabledNames = append(enabledNames, p.Name)
+		}
+	}
+	if len(enabledNames) > 0 {
+		b.WriteString(fmt.Sprintf("Prompts: %s\n", dimStyle.Render(strings.Join(enabledNames, ", "))))
+	}
 	b.WriteString("\n")
 
 	b.WriteString("Branch name:\n")
@@ -1331,9 +1341,11 @@ func renderNewTaskSelectPromptsView(m model) string {
 
 	if m.selectedProj != nil {
 		b.WriteString(fmt.Sprintf("Project: %s\n", projectStyle.Render(m.selectedProj.Name)))
+		b.WriteString(fmt.Sprintf("Path: %s\n", dimStyle.Render(m.selectedProj.EffectivePath())))
 		b.WriteString(fmt.Sprintf("Base branch: %s\n", dimStyle.Render(m.spawnBranch)))
-		b.WriteString("\n")
 	}
+	b.WriteString(fmt.Sprintf("Task: %s\n", dimStyle.Render(m.spawnTask)))
+	b.WriteString("\n")
 
 	if len(m.spawnFilteredPrompts) == 0 {
 		b.WriteString(dimStyle.Render("No prompts available for this project. Press [enter] to continue without prompts."))
