@@ -785,7 +785,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmds []tea.Cmd
 		const ciPollInterval = 30 * time.Second
 		for _, a := range m.agents {
-			if a.Status == agent.StatusWaitingCI && a.PRURL != "" {
+			if (a.Status == agent.StatusWaitingCI || a.Status == agent.StatusWaitingReview) && a.PRURL != "" {
 				activeWaiting[a.ID] = true
 				if !m.ciChecking[a.ID] {
 					lastCheck, checked := m.ciLastChecked[a.ID]
@@ -817,42 +817,46 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			return m, nil
 		}
+
+		var currentAgent *agent.Agent
+		for _, ag := range m.agents {
+			if ag.ID == msg.agentID {
+				currentAgent = ag
+				break
+			}
+		}
+		wasWaitingReview := currentAgent != nil && currentAgent.Status == agent.StatusWaitingReview
+
 		m.ciCheckProgress[msg.agentID] = ciProgress{Completed: msg.completed, Total: msg.total}
 		if msg.hasMergeConflict {
-			var a *agent.Agent
-			for _, ag := range m.agents {
-				if ag.ID == msg.agentID {
-					a = ag
-					break
+			if currentAgent != nil {
+				if wasWaitingReview {
+					m.queueManager.RemoveByAgentAndType(msg.agentID, queue.ItemTypePRReady)
 				}
-			}
-			if a != nil {
 				delete(m.ciCheckProgress, msg.agentID)
-				return m, m.resumeAgentForMergeConflictCmd(a)
+				return m, m.resumeAgentForMergeConflictCmd(currentAgent)
 			}
 		}
 		switch msg.status {
 		case ciStatusPassed:
-			delete(m.ciCheckProgress, msg.agentID)
-			summary := getPRTitleFromURL(msg.prURL)
-			if summary == "" {
-				summary = fmt.Sprintf("PR ready: %s", msg.prURL)
-			}
-			m.queueManager.Add(queue.ItemTypePRReady, msg.agentID, summary, msg.prURL)
-			m.agentStore.Update(msg.agentID, func(ag *agent.Agent) {
-				ag.Status = agent.StatusWaitingReview
-			})
-			return m, m.refreshCmd()
-		case ciStatusFailed:
-			var a *agent.Agent
-			for _, ag := range m.agents {
-				if ag.ID == msg.agentID {
-					a = ag
-					break
+			if !wasWaitingReview {
+				delete(m.ciCheckProgress, msg.agentID)
+				summary := getPRTitleFromURL(msg.prURL)
+				if summary == "" {
+					summary = fmt.Sprintf("PR ready: %s", msg.prURL)
 				}
+				m.queueManager.Add(queue.ItemTypePRReady, msg.agentID, summary, msg.prURL)
+				m.agentStore.Update(msg.agentID, func(ag *agent.Agent) {
+					ag.Status = agent.StatusWaitingReview
+				})
+				return m, m.refreshCmd()
 			}
-			if a != nil {
-				return m, m.resumeAgentForCIFixCmd(a, msg.summary)
+		case ciStatusFailed:
+			if currentAgent != nil {
+				if wasWaitingReview {
+					m.queueManager.RemoveByAgentAndType(msg.agentID, queue.ItemTypePRReady)
+				}
+				return m, m.resumeAgentForCIFixCmd(currentAgent, msg.summary)
 			}
 		}
 		return m, nil
