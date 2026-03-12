@@ -41,7 +41,9 @@ npm install -g @anthropic-ai/claude-code
 # Install ccmux
 gh release download --repo colby-duke-ai/ccmux -p 'ccmux-linux-amd64'
 chmod +x ccmux-linux-amd64
-sudo mv ccmux-linux-amd64 /usr/local/bin/ccmux
+mkdir -p ~/.local/bin && mv ccmux-linux-amd64 ~/.local/bin/ccmux
+# Ensure ~/.local/bin is in your PATH (add to ~/.bashrc or ~/.zshrc if needed):
+# export PATH="$HOME/.local/bin:$PATH"
 
 # Optional: install proj for near-instant worktree creation on large repos
 # Requires an XFS filesystem with reflink support (see proj README for setup)

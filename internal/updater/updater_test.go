@@ -64,7 +64,7 @@ func TestInstallBinary_ShouldInstallSuccessfully_GivenWritableDirectory(t *testi
 	dstFile := filepath.Join(tmpDir, "dst-binary")
 
 	// Execute.
-	err = installBinary(srcFile, dstFile)
+	_, err = installBinary(srcFile, dstFile)
 
 	// Assert.
 	if err != nil {

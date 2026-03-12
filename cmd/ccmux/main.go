@@ -100,11 +100,16 @@ func updateCmd() *cobra.Command {
 			}
 
 			fmt.Printf("Downloading %s...\n", latest)
-			if err := updater.DownloadUpdate(latest); err != nil {
+			installedPath, err := updater.DownloadUpdate(latest)
+			if err != nil {
 				return fmt.Errorf("update failed: %w", err)
 			}
 
+			currentBinary, _ := os.Executable()
 			fmt.Printf("Updated to %s. Restart ccmux to use the new version.\n", latest)
+			if installedPath != "" && installedPath != currentBinary {
+				fmt.Printf("Binary relocated to %s (ensure it is in your PATH).\n", installedPath)
+			}
 			return nil
 		},
 	}

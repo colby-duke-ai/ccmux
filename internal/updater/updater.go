@@ -41,27 +41,29 @@ func CheckForUpdate() (latestVersion string, hasUpdate bool, err error) {
 	return latest, true, nil
 }
 
-func DownloadUpdate(targetVersion string) error {
+func DownloadUpdate(targetVersion string) (string, error) {
 	return DownloadUpdateWithProgress(targetVersion, nil)
 }
 
-func DownloadUpdateWithProgress(targetVersion string, onProgress func(pct int)) error {
+// DownloadUpdateWithProgress downloads and installs the update.
+// Returns the final install path (may differ from current binary path if relocated to ~/.local/bin/).
+func DownloadUpdateWithProgress(targetVersion string, onProgress func(pct int)) (string, error) {
 	pattern := fmt.Sprintf("ccmux-%s-%s", runtime.GOOS, runtime.GOARCH)
 	expectedSize := getAssetSize(targetVersion, pattern)
 
 	currentBinary, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("failed to find current binary: %w", err)
+		return "", fmt.Errorf("failed to find current binary: %w", err)
 	}
 
 	currentBinary, err = filepath.EvalSymlinks(currentBinary)
 	if err != nil {
-		return fmt.Errorf("failed to resolve binary path: %w", err)
+		return "", fmt.Errorf("failed to resolve binary path: %w", err)
 	}
 
 	tmpDir, err := os.MkdirTemp("", "ccmux-update-*")
 	if err != nil {
-		return fmt.Errorf("failed to create temp directory: %w", err)
+		return "", fmt.Errorf("failed to create temp directory: %w", err)
 	}
 	defer os.RemoveAll(tmpDir)
 
@@ -89,7 +91,7 @@ func DownloadUpdateWithProgress(targetVersion string, onProgress func(pct int)) 
 			select {
 			case err := <-errCh:
 				if err != nil {
-					return err
+					return "", err
 				}
 				onProgress(100)
 				return installBinary(downloadedFile, currentBinary)
@@ -106,7 +108,7 @@ func DownloadUpdateWithProgress(targetVersion string, onProgress func(pct int)) 
 	}
 
 	if err := <-errCh; err != nil {
-		return err
+		return "", err
 	}
 	if onProgress != nil {
 		onProgress(100)
@@ -129,23 +131,27 @@ func getAssetSize(targetVersion, pattern string) int64 {
 	return size
 }
 
-func installBinary(src, dst string) error {
+// installBinary installs the binary at src to dst.
+// If dst is not writable, it relocates to ~/.local/bin/ instead.
+// Returns the final install path (may differ from dst if relocated).
+func installBinary(src, dst string) (string, error) {
 	if needsElevation(dst) {
-		return installBinaryElevated(src, dst)
+		newPath, err := installBinaryRelocated(src, dst)
+		return newPath, err
 	}
 	tmpPath := dst + ".tmp"
 	if err := copyFile(src, tmpPath); err != nil {
-		return fmt.Errorf("failed to stage downloaded file: %w", err)
+		return "", fmt.Errorf("failed to stage downloaded file: %w", err)
 	}
 	if err := os.Chmod(tmpPath, 0755); err != nil {
 		os.Remove(tmpPath)
-		return fmt.Errorf("failed to set permissions: %w", err)
+		return "", fmt.Errorf("failed to set permissions: %w", err)
 	}
 	if err := os.Rename(tmpPath, dst); err != nil {
 		os.Remove(tmpPath)
-		return fmt.Errorf("failed to replace binary: %w", err)
+		return "", fmt.Errorf("failed to replace binary: %w", err)
 	}
-	return nil
+	return dst, nil
 }
 
 func needsElevation(binaryPath string) bool {
@@ -160,14 +166,29 @@ func needsElevation(binaryPath string) bool {
 	return false
 }
 
-func installBinaryElevated(src, dst string) error {
-	if err := exec.Command("sudo", "-n", "cp", src, dst).Run(); err != nil {
-		return fmt.Errorf("permission denied installing to %s (try: sudo ccmux update)", dst)
+func installBinaryRelocated(src, dst string) (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("permission denied installing to %s and could not find home directory: %w", dst, err)
 	}
-	if err := exec.Command("sudo", "-n", "chmod", "755", dst).Run(); err != nil {
-		return fmt.Errorf("failed to set permissions with sudo: %w", err)
+	localBin := filepath.Join(homeDir, ".local", "bin")
+	if err := os.MkdirAll(localBin, 0755); err != nil {
+		return "", fmt.Errorf("permission denied installing to %s and could not create %s: %w", dst, localBin, err)
 	}
-	return nil
+	newDst := filepath.Join(localBin, filepath.Base(dst))
+	tmpPath := newDst + ".tmp"
+	if err := copyFile(src, tmpPath); err != nil {
+		return "", fmt.Errorf("failed to stage downloaded file: %w", err)
+	}
+	if err := os.Chmod(tmpPath, 0755); err != nil {
+		os.Remove(tmpPath)
+		return "", fmt.Errorf("failed to set permissions: %w", err)
+	}
+	if err := os.Rename(tmpPath, newDst); err != nil {
+		os.Remove(tmpPath)
+		return "", fmt.Errorf("failed to replace binary: %w", err)
+	}
+	return newDst, nil
 }
 
 func FetchChangelog(currentVersion, latestVersion string) ([]ChangelogEntry, error) {

@@ -1045,6 +1045,10 @@ func renderUpdateView(m model) string {
 		b.WriteString("\n")
 		b.WriteString(agentReadyStyle.Render("Update complete!"))
 		b.WriteString("\n")
+		if m.updateRelocatedPath != "" {
+			b.WriteString(dimStyle.Render(fmt.Sprintf("Binary relocated to %s (ensure it is in your PATH).", m.updateRelocatedPath)))
+			b.WriteString("\n")
+		}
 	} else {
 		b.WriteString("\n")
 		b.WriteString(dimStyle.Render("You are on the latest version."))

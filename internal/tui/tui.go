@@ -66,8 +66,9 @@ type model struct {
 	updateAvailable   bool
 	updateVersion     string
 	updateDownloading bool
-	updateComplete    bool
-	updateError       string
+	updateComplete        bool
+	updateRelocatedPath   string
+	updateError           string
 	changelogEntries  []updater.ChangelogEntry
 	changelogLoading  bool
 
@@ -361,7 +362,8 @@ type updateCheckResultMsg struct {
 	err       error
 }
 type updateCompleteMsg struct {
-	err error
+	err           error
+	installedPath string
 }
 type changelogFetchedMsg struct {
 	entries []updater.ChangelogEntry
@@ -603,10 +605,10 @@ func fetchChangelogCmd(currentVersion, latestVersion string) tea.Cmd {
 
 func downloadUpdateCmd(targetVersion string, progress *int64) tea.Cmd {
 	return func() tea.Msg {
-		err := updater.DownloadUpdateWithProgress(targetVersion, func(pct int) {
+		installedPath, err := updater.DownloadUpdateWithProgress(targetVersion, func(pct int) {
 			atomic.StoreInt64(progress, int64(pct))
 		})
-		return updateCompleteMsg{err: err}
+		return updateCompleteMsg{err: err, installedPath: installedPath}
 	}
 }
 
@@ -762,6 +764,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.updateComplete = true
+		currentBinary, _ := os.Executable()
+		if msg.installedPath != "" && msg.installedPath != currentBinary {
+			m.updateRelocatedPath = msg.installedPath
+		}
 		return m, nil
 
 	case errMsg:
@@ -982,6 +988,7 @@ func (m model) handleMainKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.updateVersion = ""
 		m.updateDownloading = false
 		m.updateComplete = false
+		m.updateRelocatedPath = ""
 		m.updateError = ""
 		m.changelogEntries = nil
 		m.changelogLoading = false
