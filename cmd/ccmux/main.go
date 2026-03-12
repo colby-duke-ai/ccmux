@@ -230,7 +230,11 @@ func spawnCmd() *cobra.Command {
 				return fmt.Errorf("failed to create launcher script: %w", err)
 			}
 
-			windowID, err := tmuxManager.CreateWindow(proj.EffectivePath(), "bash "+launcherScript, agentID[:8])
+			windowName := agentID[:8]
+			if worktreeName != "" {
+				windowName = sanitizeWorktreeName(worktreeName)
+			}
+			windowID, err := tmuxManager.CreateWindow(proj.EffectivePath(), "bash "+launcherScript, windowName)
 			if err != nil {
 				os.Remove(launcherScript)
 				return fmt.Errorf("failed to create tmux window: %w", err)
