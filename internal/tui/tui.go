@@ -520,6 +520,9 @@ func (m model) refreshCmd() tea.Cmd {
 				_, hasIdleItem := idleItemByAgent[a.ID]
 
 				if isIdle && !hasIdleItem {
+					m.agentStore.Update(a.ID, func(ag *agent.Agent) {
+						ag.Status = agent.StatusReady
+					})
 					m.queueManager.Add(queue.ItemTypeIdle, a.ID, "Agent idle - waiting for input", "")
 					changed = true
 				} else if !isIdle && hasIdleItem {
@@ -1777,6 +1780,11 @@ func (m model) jumpToAgentCmd(a *agent.Agent) tea.Cmd {
 func (m model) quickRespondToAgentCmd(a *agent.Agent) tea.Cmd {
 	return func() tea.Msg {
 		m.queueManager.RemoveByAgent(a.ID)
+		if a.Status == agent.StatusReady {
+			m.agentStore.Update(a.ID, func(ag *agent.Agent) {
+				ag.Status = agent.StatusRunning
+			})
+		}
 		if err := m.tmuxManager.SelectWindow(a.TmuxWindow); err != nil {
 			return errMsg{err}
 		}
@@ -1790,6 +1798,11 @@ func (m model) sendKeysToAgentCmd(a *agent.Agent, text string) tea.Cmd {
 			return errMsg{err}
 		}
 		m.queueManager.RemoveByAgent(a.ID)
+		if a.Status == agent.StatusReady {
+			m.agentStore.Update(a.ID, func(ag *agent.Agent) {
+				ag.Status = agent.StatusRunning
+			})
+		}
 		return successMsg{fmt.Sprintf("Sent message to agent %s", a.ID)}
 	}
 }
