@@ -41,6 +41,7 @@ const (
 	ViewManagePrompts
 	ViewAddPromptName
 	ViewAddPromptContent
+	ViewAddPromptDefault
 	ViewEditPrompt
 	ViewConfirmRemovePrompt
 	ViewNewTaskSelectPrompts
@@ -1168,6 +1169,27 @@ func renderAddPromptContentView(m model) string {
 	b.WriteString("\n\n")
 
 	help := helpFooter(ViewAddPromptContent)
+	b.WriteString(renderFooter(help, m.ctrlCPressed))
+
+	return b.String()
+}
+
+func renderAddPromptDefaultView(m model) string {
+	var b strings.Builder
+
+	b.WriteString(titleStyle.Render("# Add Prompt - Default"))
+	b.WriteString("\n\n")
+
+	b.WriteString(fmt.Sprintf("Name: %s\n\n", projectStyle.Render(m.newPromptName)))
+
+	b.WriteString("Set as default? (yes/no):\n")
+	b.WriteString(inputStyle.Render(m.promptForm.defaultInput.View()))
+	b.WriteString("\n\n")
+
+	b.WriteString(dimStyle.Render("Default prompts are automatically selected when creating new tasks"))
+	b.WriteString("\n\n")
+
+	help := helpFooter(ViewAddPromptDefault)
 	b.WriteString(renderFooter(help, m.ctrlCPressed))
 
 	return b.String()

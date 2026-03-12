@@ -167,6 +167,7 @@ type editProjectFormModel struct {
 type promptFormModel struct {
 	nameInput    textinput.Model
 	contentInput textarea.Model
+	defaultInput textinput.Model
 }
 
 type editPromptFormModel struct {
@@ -184,17 +185,25 @@ func newPromptForm() promptFormModel {
 
 	contentInput := newFixedTextarea("Enter prompt content...", 60)
 
+	defaultInput := textinput.New()
+	defaultInput.Placeholder = "no"
+	defaultInput.Width = 10
+	defaultInput.CharLimit = 5
+
 	return promptFormModel{
 		nameInput:    nameInput,
 		contentInput: contentInput,
+		defaultInput: defaultInput,
 	}
 }
 
 func (pf *promptFormModel) reset() {
 	pf.nameInput.SetValue("")
 	pf.contentInput.SetValue("")
+	pf.defaultInput.SetValue("")
 	pf.nameInput.Blur()
 	pf.contentInput.Blur()
+	pf.defaultInput.Blur()
 	pf.nameInput.Focus()
 }
 
@@ -1037,6 +1046,8 @@ func (m model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleAddPromptNameKeys(msg)
 	case ViewAddPromptContent:
 		return m.handleAddPromptContentKeys(msg)
+	case ViewAddPromptDefault:
+		return m.handleAddPromptDefaultKeys(msg)
 	case ViewEditPrompt:
 		return m.handleEditPromptKeys(msg)
 	case ViewConfirmRemovePrompt:
@@ -1690,13 +1701,35 @@ func (m model) handleAddPromptContentKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if content == "" {
 			return m, nil
 		}
-		m.view = ViewManagePrompts
-		m.selectedIndex = 0
-		return m, m.addPromptCmd(m.newPromptName, content)
+		m.view = ViewAddPromptDefault
+		m.promptForm.contentInput.Blur()
+		m.promptForm.defaultInput.SetValue("")
+		cmd := m.promptForm.defaultInput.Focus()
+		return m, cmd
 	}
 
 	var cmd tea.Cmd
 	m.promptForm.contentInput, cmd = m.promptForm.contentInput.Update(msg)
+	return m, cmd
+}
+
+func (m model) handleAddPromptDefaultKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.view = ViewAddPromptContent
+		m.promptForm.defaultInput.Blur()
+		cmd := m.promptForm.contentInput.Focus()
+		return m, cmd
+	case "enter":
+		defaultStr := strings.ToLower(strings.TrimSpace(m.promptForm.defaultInput.Value()))
+		isDefault := defaultStr == "yes" || defaultStr == "true" || defaultStr == "y"
+		m.view = ViewManagePrompts
+		m.selectedIndex = 0
+		return m, m.addPromptCmd(m.newPromptName, m.promptForm.contentInput.Value(), isDefault)
+	}
+
+	var cmd tea.Cmd
+	m.promptForm.defaultInput, cmd = m.promptForm.defaultInput.Update(msg)
 	return m, cmd
 }
 
@@ -1788,11 +1821,12 @@ func (m model) handleNewTaskSelectPromptsKeys(msg tea.KeyMsg) (tea.Model, tea.Cm
 	return m, nil
 }
 
-func (m model) addPromptCmd(name, content string) tea.Cmd {
+func (m model) addPromptCmd(name, content string, isDefault bool) tea.Cmd {
 	return func() tea.Msg {
 		p := &prompt.Prompt{
-			Name:    name,
-			Content: content,
+			Name:      name,
+			Content:   content,
+			IsDefault: isDefault,
 		}
 		if err := m.promptStore.Add(p); err != nil {
 			return errMsg{err}
@@ -2642,6 +2676,8 @@ func (m model) View() string {
 		content = renderAddPromptNameView(m)
 	case ViewAddPromptContent:
 		content = renderAddPromptContentView(m)
+	case ViewAddPromptDefault:
+		content = renderAddPromptDefaultView(m)
 	case ViewEditPrompt:
 		content = renderEditPromptView(m)
 	case ViewConfirmRemovePrompt:

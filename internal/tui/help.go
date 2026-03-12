@@ -38,6 +38,7 @@ var viewTitles = map[ViewState]string{
 	ViewManagePrompts:        "Manage Prompts",
 	ViewAddPromptName:        "Add Prompt (Name)",
 	ViewAddPromptContent:     "Add Prompt (Content)",
+	ViewAddPromptDefault:     "Add Prompt (Default)",
 	ViewEditPrompt:           "Edit Prompt",
 	ViewConfirmRemovePrompt:  "Remove Prompt",
 	ViewNewTaskSelectPrompts: "New Task - Select Prompts",
@@ -147,8 +148,12 @@ var viewHelpCommands = map[ViewState][]helpCommand{
 		{FooterText: "[esc] cancel", Description: "Cancel and return to prompt management"},
 	},
 	ViewAddPromptContent: {
-		{FooterText: "[enter] create prompt", Description: "Create the prompt"},
+		{FooterText: "[enter] next", Description: "Proceed to default setting"},
 		{FooterText: "[esc] back", Description: "Return to name entry"},
+	},
+	ViewAddPromptDefault: {
+		{FooterText: "[enter] create prompt", Description: "Create the prompt"},
+		{FooterText: "[esc] back", Description: "Return to content entry"},
 	},
 	ViewEditPrompt: {
 		{FooterText: "[tab] next field", Description: "Move to the next field"},
