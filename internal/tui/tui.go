@@ -1279,6 +1279,12 @@ func (m model) handleNewTaskInputKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.spawnFilteredPrompts = append(m.spawnFilteredPrompts, p)
 			m.spawnPromptEnabled[p.ID] = p.IsDefault
 		}
+		if len(m.spawnFilteredPrompts) == 0 {
+			m.view = ViewNewTaskWorktreeName
+			m.worktreeNameInput.SetValue("")
+			m.worktreeNameInput.Focus()
+			return m, textinput.Blink
+		}
 		m.view = ViewNewTaskSelectPrompts
 		m.selectedIndex = 0
 		return m, nil
@@ -1292,8 +1298,13 @@ func (m model) handleNewTaskInputKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m model) handleNewTaskWorktreeNameKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
-		m.view = ViewNewTaskSelectPrompts
 		m.worktreeNameInput.Blur()
+		if len(m.spawnFilteredPrompts) == 0 {
+			m.view = ViewNewTaskInput
+			cmd := m.taskInput.Focus()
+			return m, cmd
+		}
+		m.view = ViewNewTaskSelectPrompts
 		m.selectedIndex = 0
 		return m, nil
 	case "enter":
