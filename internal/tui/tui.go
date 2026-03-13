@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -2498,6 +2499,7 @@ func evaluateCIChecks(checks []prCheckResult) (status ciStatus, failedNames []st
 	}
 
 	if len(failedNames) > 0 {
+		sort.Strings(failedNames)
 		return ciStatusFailed, failedNames, completed, total
 	}
 	if hasPending {
