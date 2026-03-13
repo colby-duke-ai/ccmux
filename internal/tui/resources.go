@@ -233,7 +233,7 @@ func findDescendants(rootPID int, procs map[int]*procInfo) []int {
 	return result
 }
 
-const cpuActiveThreshold = 0.5
+const cpuActiveThreshold = 0.05
 
 func isProcessTreeActive(
 	windowID string,
