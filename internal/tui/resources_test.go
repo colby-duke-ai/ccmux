@@ -560,3 +560,60 @@ func TestIsNewOpus_ShouldReturnFalse_GivenOldOpus(t *testing.T) {
 		t.Error("expected false for opus-3")
 	}
 }
+
+func TestIsProcessTreeActiveFromPID_ShouldReturnTrue_GivenSignificantCPUDelta(t *testing.T) {
+	// Setup.
+	procs := map[int]*procInfo{
+		100: {pid: 100, ppid: 1, rss: 1000},
+		200: {pid: 200, ppid: 100, rss: 2000},
+	}
+	currentTicks := map[int]int64{100: 500, 200: 300}
+	prevTicks := map[int]int64{100: 400, 200: 200}
+	clkTck := int64(100)
+
+	// Execute.
+	result := isProcessTreeActiveFromPID(100, procs, currentTicks, prevTicks, clkTck)
+
+	// Assert.
+	if !result {
+		t.Error("expected active when CPU delta is significant")
+	}
+}
+
+func TestIsProcessTreeActiveFromPID_ShouldReturnFalse_GivenNoCPUDelta(t *testing.T) {
+	// Setup.
+	procs := map[int]*procInfo{
+		100: {pid: 100, ppid: 1, rss: 1000},
+		200: {pid: 200, ppid: 100, rss: 2000},
+	}
+	currentTicks := map[int]int64{100: 500, 200: 300}
+	prevTicks := map[int]int64{100: 500, 200: 300}
+	clkTck := int64(100)
+
+	// Execute.
+	result := isProcessTreeActiveFromPID(100, procs, currentTicks, prevTicks, clkTck)
+
+	// Assert.
+	if result {
+		t.Error("expected inactive when no CPU delta")
+	}
+}
+
+func TestIsProcessTreeActiveFromPID_ShouldReturnFalse_GivenNoPrevTicks(t *testing.T) {
+	// Setup.
+	procs := map[int]*procInfo{
+		100: {pid: 100, ppid: 1, rss: 1000},
+	}
+	currentTicks := map[int]int64{100: 500}
+	prevTicks := map[int]int64{}
+	clkTck := int64(100)
+
+	// Execute.
+	result := isProcessTreeActiveFromPID(100, procs, currentTicks, prevTicks, clkTck)
+
+	// Assert.
+	if result {
+		t.Error("expected inactive when no previous ticks")
+	}
+}
+

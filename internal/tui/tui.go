@@ -619,6 +619,9 @@ func (m model) refreshCmd() tea.Cmd {
 			}
 		}
 
+		procs := listAllProcesses()
+		procTicks := readAllProcTicks()
+
 		changed := false
 		for _, a := range agents {
 			if a.TmuxWindow == "" {
@@ -635,6 +638,9 @@ func (m model) refreshCmd() tea.Cmd {
 				_, hasIdleItem := idleItemByAgent[a.ID]
 
 				if isIdle && !hasIdleItem {
+					if isProcessTreeActive(a.TmuxWindow, m.tmuxManager, procs, procTicks, m.prevCPUTicks, m.clkTck) {
+						continue
+					}
 					m.agentStore.Update(a.ID, func(ag *agent.Agent) {
 						ag.Status = agent.StatusReady
 					})
@@ -655,7 +661,9 @@ func (m model) refreshCmd() tea.Cmd {
 				if err != nil {
 					continue
 				}
-				if now.Sub(activity) < idleThreshold {
+				paneActive := now.Sub(activity) < idleThreshold
+				cpuActive := isProcessTreeActive(a.TmuxWindow, m.tmuxManager, procs, procTicks, m.prevCPUTicks, m.clkTck)
+				if paneActive || cpuActive {
 					m.agentStore.Update(a.ID, func(ag *agent.Agent) {
 						ag.Status = agent.StatusRunning
 					})
@@ -1279,6 +1287,12 @@ func (m model) handleNewTaskInputKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.spawnFilteredPrompts = append(m.spawnFilteredPrompts, p)
 			m.spawnPromptEnabled[p.ID] = p.IsDefault
 		}
+		if len(m.spawnFilteredPrompts) == 0 {
+			m.view = ViewNewTaskWorktreeName
+			m.worktreeNameInput.SetValue("")
+			m.worktreeNameInput.Focus()
+			return m, textinput.Blink
+		}
 		m.view = ViewNewTaskSelectPrompts
 		m.selectedIndex = 0
 		return m, nil
@@ -1292,8 +1306,13 @@ func (m model) handleNewTaskInputKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m model) handleNewTaskWorktreeNameKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
-		m.view = ViewNewTaskSelectPrompts
 		m.worktreeNameInput.Blur()
+		if len(m.spawnFilteredPrompts) == 0 {
+			m.view = ViewNewTaskInput
+			cmd := m.taskInput.Focus()
+			return m, cmd
+		}
+		m.view = ViewNewTaskSelectPrompts
 		m.selectedIndex = 0
 		return m, nil
 	case "enter":
