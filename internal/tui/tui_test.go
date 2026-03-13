@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/CDFalcon/ccmux/internal/prompt"
 	"github.com/CDFalcon/ccmux/internal/repo"
 )
 
@@ -23,15 +24,21 @@ func newTestModel() model {
 
 	taskInput := newFixedTextarea("Describe the task...", 60)
 
+	worktreeNameInput := textinput.New()
+	worktreeNameInput.Placeholder = "e.g. fix-auth-bug (optional)"
+	worktreeNameInput.Width = 50
+	worktreeNameInput.CharLimit = 50
+
 	progress := new(int64)
 
 	return model{
-		view:             ViewNewTaskBranch,
-		branchInput:      branchInput,
-		branchFilter:     branchFilter,
-		taskInput:        taskInput,
-		downloadProgress: progress,
-		projSetupBuffers: make(map[string]*projImportBuffer),
+		view:              ViewNewTaskBranch,
+		branchInput:       branchInput,
+		branchFilter:      branchFilter,
+		taskInput:         taskInput,
+		worktreeNameInput: worktreeNameInput,
+		downloadProgress:  progress,
+		projSetupBuffers:  make(map[string]*projImportBuffer),
 	}
 }
 
@@ -935,5 +942,95 @@ func TestEvaluateCIChecks_ShouldReturnPending_GivenStatusContextPending(t *testi
 	}
 	if total != 2 {
 		t.Errorf("expected 2 total, got %d", total)
+	}
+}
+
+func TestHandleNewTaskInputKeys_ShouldSkipPromptSelection_GivenNoPrompts(t *testing.T) {
+	// Setup.
+	m := newTestModel()
+	m.view = ViewNewTaskInput
+	m.taskInput.SetValue("do something")
+	m.prompts = nil
+
+	// Execute.
+	result, _ := m.handleNewTaskInputKeys(tea.KeyMsg{Type: tea.KeyEnter})
+
+	// Assert.
+	rm := result.(model)
+	if rm.view != ViewNewTaskWorktreeName {
+		t.Errorf("expected ViewNewTaskWorktreeName, got %d", rm.view)
+	}
+}
+
+func TestHandleNewTaskInputKeys_ShouldSkipPromptSelection_GivenNoMatchingPrompts(t *testing.T) {
+	// Setup.
+	m := newTestModel()
+	m.view = ViewNewTaskInput
+	m.taskInput.SetValue("do something")
+	m.selectedRepo = &repo.Repo{Name: "my-proj"}
+	m.prompts = []*prompt.Prompt{
+		{ID: "1", Name: "other", RepoNames: []string{"other-proj"}},
+	}
+
+	// Execute.
+	result, _ := m.handleNewTaskInputKeys(tea.KeyMsg{Type: tea.KeyEnter})
+
+	// Assert.
+	rm := result.(model)
+	if rm.view != ViewNewTaskWorktreeName {
+		t.Errorf("expected ViewNewTaskWorktreeName, got %d", rm.view)
+	}
+}
+
+func TestHandleNewTaskInputKeys_ShouldShowPromptSelection_GivenMatchingPrompts(t *testing.T) {
+	// Setup.
+	m := newTestModel()
+	m.view = ViewNewTaskInput
+	m.taskInput.SetValue("do something")
+	m.prompts = []*prompt.Prompt{
+		{ID: "1", Name: "global prompt"},
+	}
+
+	// Execute.
+	result, _ := m.handleNewTaskInputKeys(tea.KeyMsg{Type: tea.KeyEnter})
+
+	// Assert.
+	rm := result.(model)
+	if rm.view != ViewNewTaskSelectPrompts {
+		t.Errorf("expected ViewNewTaskSelectPrompts, got %d", rm.view)
+	}
+}
+
+func TestHandleNewTaskWorktreeNameKeys_ShouldGoBackToTaskInput_GivenEscWithNoPrompts(t *testing.T) {
+	// Setup.
+	m := newTestModel()
+	m.view = ViewNewTaskWorktreeName
+	m.spawnFilteredPrompts = nil
+
+	// Execute.
+	result, _ := m.handleNewTaskWorktreeNameKeys(tea.KeyMsg{Type: tea.KeyEsc})
+
+	// Assert.
+	rm := result.(model)
+	if rm.view != ViewNewTaskInput {
+		t.Errorf("expected ViewNewTaskInput, got %d", rm.view)
+	}
+}
+
+func TestHandleNewTaskWorktreeNameKeys_ShouldGoBackToPromptSelection_GivenEscWithPrompts(t *testing.T) {
+	// Setup.
+	m := newTestModel()
+	m.view = ViewNewTaskWorktreeName
+	m.spawnFilteredPrompts = []*prompt.Prompt{
+		{ID: "1", Name: "test"},
+	}
+
+	// Execute.
+	result, _ := m.handleNewTaskWorktreeNameKeys(tea.KeyMsg{Type: tea.KeyEsc})
+
+	// Assert.
+	rm := result.(model)
+	if rm.view != ViewNewTaskSelectPrompts {
+		t.Errorf("expected ViewNewTaskSelectPrompts, got %d", rm.view)
 	}
 }
