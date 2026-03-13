@@ -193,7 +193,12 @@ func (m *Manager) RenameWindow(windowID, name string) error {
 }
 
 func (m *Manager) EnsureRemainOnExit() {
+	m.RemoveRemainOnExitHook()
 	m.SetWindowRemainOnExit(m.FirstWindowTarget())
+}
+
+func (m *Manager) RemoveRemainOnExitHook() {
+	exec.Command("tmux", "set-hook", "-u", "-t", m.sessionName, "after-new-window").Run()
 }
 
 func (m *Manager) SetWindowRemainOnExit(windowID string) {
