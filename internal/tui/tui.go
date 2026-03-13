@@ -619,6 +619,9 @@ func (m model) refreshCmd() tea.Cmd {
 			}
 		}
 
+		procs := listAllProcesses()
+		procTicks := readAllProcTicks()
+
 		changed := false
 		for _, a := range agents {
 			if a.TmuxWindow == "" {
@@ -635,6 +638,9 @@ func (m model) refreshCmd() tea.Cmd {
 				_, hasIdleItem := idleItemByAgent[a.ID]
 
 				if isIdle && !hasIdleItem {
+					if isProcessTreeActive(a.TmuxWindow, m.tmuxManager, procs, procTicks, m.prevCPUTicks, m.clkTck) {
+						continue
+					}
 					m.agentStore.Update(a.ID, func(ag *agent.Agent) {
 						ag.Status = agent.StatusReady
 					})
@@ -655,7 +661,9 @@ func (m model) refreshCmd() tea.Cmd {
 				if err != nil {
 					continue
 				}
-				if now.Sub(activity) < idleThreshold {
+				paneActive := now.Sub(activity) < idleThreshold
+				cpuActive := isProcessTreeActive(a.TmuxWindow, m.tmuxManager, procs, procTicks, m.prevCPUTicks, m.clkTck)
+				if paneActive || cpuActive {
 					m.agentStore.Update(a.ID, func(ag *agent.Agent) {
 						ag.Status = agent.StatusRunning
 					})

@@ -233,6 +233,53 @@ func findDescendants(rootPID int, procs map[int]*procInfo) []int {
 	return result
 }
 
+const cpuActiveThreshold = 0.05
+
+func isProcessTreeActive(
+	windowID string,
+	tmuxMgr *tmux.Manager,
+	procs map[int]*procInfo,
+	currentTicks map[int]int64,
+	prevTicks map[int]int64,
+	clkTck int64,
+) bool {
+	panePID, err := tmuxMgr.GetPanePID(windowID)
+	if err != nil || panePID <= 0 {
+		return false
+	}
+	return isProcessTreeActiveFromPID(panePID, procs, currentTicks, prevTicks, clkTck)
+}
+
+func isProcessTreeActiveFromPID(
+	rootPID int,
+	procs map[int]*procInfo,
+	currentTicks map[int]int64,
+	prevTicks map[int]int64,
+	clkTck int64,
+) bool {
+	if len(prevTicks) == 0 || clkTck <= 0 {
+		return false
+	}
+	descendants := findDescendants(rootPID, procs)
+
+	var curr, prev int64
+	for _, pid := range descendants {
+		if t, ok := currentTicks[pid]; ok {
+			curr += t
+		}
+		if t, ok := prevTicks[pid]; ok {
+			prev += t
+		}
+	}
+
+	deltaTicks := curr - prev
+	if deltaTicks <= 0 {
+		return false
+	}
+	cpuSeconds := float64(deltaTicks) / float64(clkTck)
+	return cpuSeconds > cpuActiveThreshold
+}
+
 func getDiskUsage(path string) int64 {
 	cmd := exec.Command("du", "-sb", path)
 	output, err := cmd.Output()
