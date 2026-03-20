@@ -56,7 +56,7 @@ echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
 
 1. **Start a session:** `ccmux` (or `ccmux <name>` for a named session).
 
-2. **Register a project:** Press `p` to open project management, then `a` to add a git repository.
+2. **Register a project:** Press `P` to open project management, then `a` to add a git repository.
 
 3. **Spawn an agent:** Press `n`, select a project and base branch, describe the task. ccmux creates a worktree and launches Claude Code.
 
