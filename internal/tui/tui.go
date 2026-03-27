@@ -113,6 +113,7 @@ type model struct {
 	totalMemKB       int64
 	clkTck           int64
 	hostDiskAvailGB  float64
+	hostMemPercent   float64
 	prevCPUTicks    map[int]int64
 
 	// Download progress
@@ -522,6 +523,7 @@ type refreshMsg struct {
 	prevCPUTicks    map[int]int64
 	liveDailyCosts  map[string]float64
 	hostDiskAvailGB float64
+	hostMemPercent  float64
 }
 type errMsg struct{ err error }
 type successMsg struct{ msg string }
@@ -801,6 +803,8 @@ func (m model) refreshCmd() tea.Cmd {
 			}
 		}
 
+		memPercent := getSystemMemPercent()
+
 		return refreshMsg{
 			agents:          agents,
 			queueItems:      queueItems,
@@ -810,6 +814,7 @@ func (m model) refreshCmd() tea.Cmd {
 			prevCPUTicks:    newCPUTicks,
 			liveDailyCosts:  liveDailyCosts,
 			hostDiskAvailGB: diskAvailGB,
+			hostMemPercent:  memPercent,
 		}
 	}
 }
@@ -896,6 +901,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.prevCPUTicks = msg.prevCPUTicks
 		m.liveDailyCosts = msg.liveDailyCosts
 		m.hostDiskAvailGB = msg.hostDiskAvailGB
+		m.hostMemPercent = msg.hostMemPercent
 
 		activeWaiting := make(map[string]bool)
 		var cmds []tea.Cmd
