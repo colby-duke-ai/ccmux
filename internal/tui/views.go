@@ -105,6 +105,15 @@ func renderMainView(m model) string {
 	if todayCost > 0 {
 		b.WriteString("  " + dimStyle.Render(fmt.Sprintf("Today's cost: $%.2f (est.)", todayCost)))
 	}
+	if m.hostDiskAvailGB > 0 && m.hostDiskAvailGB < 200 {
+		warnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ColorRed)).Bold(true)
+		if todayCost > 0 {
+			b.WriteString("  ")
+		} else {
+			b.WriteString("  ")
+		}
+		b.WriteString(warnStyle.Render(fmt.Sprintf("⚠ Disk: %dGB free", int(m.hostDiskAvailGB))))
+	}
 	b.WriteString("\n\n")
 
 	b.WriteString(headerStyle.Render(fmt.Sprintf("# Agents (%d)", len(m.agents))))

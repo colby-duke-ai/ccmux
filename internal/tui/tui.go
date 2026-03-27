@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 	"sort"
 	"strings"
 	"sync"
@@ -107,10 +108,11 @@ type model struct {
 	ciCheckProgress  map[string]ciProgress
 
 	// Resource monitoring
-	agentResources  map[string]*AgentResources
-	liveDailyCosts  map[string]float64
-	totalMemKB      int64
-	clkTck          int64
+	agentResources   map[string]*AgentResources
+	liveDailyCosts   map[string]float64
+	totalMemKB       int64
+	clkTck           int64
+	hostDiskAvailGB  float64
 	prevCPUTicks    map[int]int64
 
 	// Download progress
@@ -512,13 +514,14 @@ func (m model) visibleProjects() []*project.Project {
 type tickMsg time.Time
 type spinnerTickMsg time.Time
 type refreshMsg struct {
-	agents         []*agent.Agent
-	queueItems     []*queue.QueueItem
-	projects       []*project.Project
-	prompts        []*prompt.Prompt
-	resources      map[string]*AgentResources
-	prevCPUTicks   map[int]int64
-	liveDailyCosts map[string]float64
+	agents          []*agent.Agent
+	queueItems      []*queue.QueueItem
+	projects        []*project.Project
+	prompts         []*prompt.Prompt
+	resources       map[string]*AgentResources
+	prevCPUTicks    map[int]int64
+	liveDailyCosts  map[string]float64
+	hostDiskAvailGB float64
 }
 type errMsg struct{ err error }
 type successMsg struct{ msg string }
@@ -790,14 +793,23 @@ func (m model) refreshCmd() tea.Cmd {
 
 		prompts, _ := m.promptStore.List()
 
+		var diskAvailGB float64
+		if exePath, err := os.Executable(); err == nil {
+			var stat syscall.Statfs_t
+			if err := syscall.Statfs(filepath.Dir(exePath), &stat); err == nil {
+				diskAvailGB = float64(stat.Bavail*uint64(stat.Bsize)) / (1024 * 1024 * 1024)
+			}
+		}
+
 		return refreshMsg{
-			agents:         agents,
-			queueItems:     queueItems,
-			projects:       projects,
-			prompts:        prompts,
-			resources:      resources,
-			prevCPUTicks:   newCPUTicks,
-			liveDailyCosts: liveDailyCosts,
+			agents:          agents,
+			queueItems:      queueItems,
+			projects:        projects,
+			prompts:         prompts,
+			resources:       resources,
+			prevCPUTicks:    newCPUTicks,
+			liveDailyCosts:  liveDailyCosts,
+			hostDiskAvailGB: diskAvailGB,
 		}
 	}
 }
@@ -883,6 +895,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.agentResources = msg.resources
 		m.prevCPUTicks = msg.prevCPUTicks
 		m.liveDailyCosts = msg.liveDailyCosts
+		m.hostDiskAvailGB = msg.hostDiskAvailGB
 
 		activeWaiting := make(map[string]bool)
 		var cmds []tea.Cmd
