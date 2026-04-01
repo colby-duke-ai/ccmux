@@ -907,7 +907,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmds []tea.Cmd
 		const ciPollInterval = 30 * time.Second
 		for _, a := range m.agents {
-			if (a.Status == agent.StatusWaitingCI || a.Status == agent.StatusWaitingReview) && a.PRURL != "" {
+			if (a.Status == agent.StatusWaitingCI || a.Status == agent.StatusWaitingReview || a.Status == agent.StatusReady) && a.PRURL != "" {
 				activeWaiting[a.ID] = true
 				if !m.ciChecking[a.ID] {
 					lastCheck, checked := m.ciLastChecked[a.ID]
