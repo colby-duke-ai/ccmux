@@ -328,7 +328,7 @@ func writeLauncherScript(agentID, task, repoPath, baseBranch, sessionID string, 
 set -e
 
 AGENT_ID="%s"
-TASK=%q
+TASK=%s
 REPO_PATH="%s"
 BASE_BRANCH="%s"
 SESSION_ID="%s"
@@ -499,7 +499,7 @@ claude --dangerously-skip-permissions --system-prompt "$SYSTEM_PROMPT" \
   "$TASK"
 
 ccmux agent-stopped "$AGENT_ID"
-`, agentID, task, repoPath, baseBranch, sessionID, useFastWT, wtSuffix, startupScript, promptsFilePath(agentID))
+`, agentID, shellQuote(task), repoPath, baseBranch, sessionID, useFastWT, wtSuffix, startupScript, promptsFilePath(agentID))
 
 	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
 		return "", err
@@ -1201,7 +1201,7 @@ func writePlaceholderScript(agentID, worktreePath, task string) (string, error) 
 
 AGENT_ID="%s"
 WORKTREE_PATH="%s"
-TASK=%q
+TASK=%s
 
 BLUE="\033[38;5;63m"
 WHITE="\033[1;97m"
@@ -1219,7 +1219,7 @@ echo ""
 while true; do
   sleep 3600
 done
-`, agentID, worktreePath, task)
+`, agentID, worktreePath, shellQuote(task))
 
 	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
 		return "", err
@@ -1245,7 +1245,7 @@ func writeCIWaitPlaceholderScript(agentID, worktreePath, task string) (string, e
 
 AGENT_ID="%s"
 WORKTREE_PATH="%s"
-TASK=%q
+TASK=%s
 
 BLUE="\033[38;5;63m"
 WHITE="\033[1;97m"
@@ -1263,13 +1263,21 @@ echo ""
 while true; do
   sleep 3600
 done
-`, agentID, worktreePath, task)
+`, agentID, worktreePath, shellQuote(task))
 
 	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
 		return "", err
 	}
 
 	return scriptPath, nil
+}
+
+// shellQuote quotes a string for safe use in a bash script using single quotes.
+// Single quotes prevent all shell interpretation (no backtick command substitution,
+// no variable expansion, no backslash escaping). The only character that needs
+// special handling is the single quote itself.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
 
 // sanitizeWorktreeName converts a user-supplied name into a safe string for
