@@ -456,7 +456,7 @@ echo "✓ Agent registered"
 echo ""
 
 # Store the worktree path in a tmux window option so that any new pane opened
-# in this window (e.g. via prefix-% or prefix-") automatically cds there.
+# in this window (e.g. via prefix-%% or prefix-") automatically cds there.
 tmux set-option -w @ccmux_worktree "$WORKTREE_PATH"
 
 STARTUP_SCRIPT=%s
