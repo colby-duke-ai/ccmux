@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -924,6 +926,28 @@ func killSessionCmd() *cobra.Command {
 	}
 }
 
+// isPRMerged checks if a GitHub PR has been merged by calling gh pr view.
+// Returns false on any error so we fail open (don't accidentally clean up).
+func isPRMerged(prURL string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "gh", "pr", "view", prURL, "--json", "state")
+	output, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+
+	var resp struct {
+		State string `json:"state"`
+	}
+	if err := json.Unmarshal(output, &resp); err != nil {
+		return false
+	}
+
+	return resp.State == "MERGED"
+}
+
 func recoverOrphanedAgents(sessionID string, tmuxManager *tmux.Manager, homeDir string) (bool, error) {
 	agentStore, err := agent.NewStore(sessionID)
 	if err != nil {
@@ -948,6 +972,13 @@ func recoverOrphanedAgents(sessionID string, tmuxManager *tmux.Manager, homeDir 
 
 	for _, a := range agents {
 		worktreeExists := a.WorktreePath != "" && dirExists(a.WorktreePath)
+
+		// If the PR was merged while ccmux was down, clean up instead of recovering.
+		if a.PRURL != "" && isPRMerged(a.PRURL) {
+			logging.Log("recovery: PR already merged for agent %s, cleaning up", a.ID)
+			toCleanup = append(toCleanup, a)
+			continue
+		}
 
 		switch {
 		case (a.Status == agent.StatusCleaningUp || a.Status == agent.StatusKilling) && worktreeExists:
