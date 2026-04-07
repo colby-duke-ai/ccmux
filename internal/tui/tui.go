@@ -107,6 +107,7 @@ type model struct {
 	ciLastChecked    map[string]time.Time
 	ciChecking       map[string]bool
 	ciCheckProgress  map[string]ciProgress
+	ciResumeHistory  map[string][]time.Time
 
 	// Resource monitoring
 	agentResources   map[string]*AgentResources
@@ -175,12 +176,13 @@ type projectFormModel struct {
 }
 
 type editProjectFormModel struct {
-	pathInput            textinput.Model
-	baseBranchInput      textinput.Model
-	fastWTInput          textinput.Model
-	startupScriptInput   textinput.Model
-	teardownScriptInput  textinput.Model
-	focusIndex           int // 0=path, 1=baseBranch, 2=fastWT, 3=startupScript, 4=teardownScript
+	pathInput              textinput.Model
+	baseBranchInput        textinput.Model
+	fastWTInput            textinput.Model
+	startupScriptInput     textinput.Model
+	teardownScriptInput    textinput.Model
+	mergeWhenAcceptedInput textinput.Model
+	focusIndex             int // 0=path, 1=baseBranch, 2=fastWT, 3=startupScript, 4=teardownScript, 5=mergeWhenAccepted
 }
 
 type promptFormModel struct {
@@ -335,13 +337,19 @@ func newEditProjectForm() editProjectFormModel {
 	teardownScriptInput.Width = 50
 	teardownScriptInput.CharLimit = 200
 
+	mergeWhenAcceptedInput := textinput.New()
+	mergeWhenAcceptedInput.Placeholder = "no"
+	mergeWhenAcceptedInput.Width = 10
+	mergeWhenAcceptedInput.CharLimit = 5
+
 	return editProjectFormModel{
-		pathInput:           pathInput,
-		baseBranchInput:     baseBranchInput,
-		fastWTInput:         fastWTInput,
-		startupScriptInput:  startupScriptInput,
-		teardownScriptInput: teardownScriptInput,
-		focusIndex:          0,
+		pathInput:              pathInput,
+		baseBranchInput:        baseBranchInput,
+		fastWTInput:            fastWTInput,
+		startupScriptInput:     startupScriptInput,
+		teardownScriptInput:    teardownScriptInput,
+		mergeWhenAcceptedInput: mergeWhenAcceptedInput,
+		focusIndex:             0,
 	}
 }
 
@@ -351,6 +359,7 @@ func (ef *editProjectFormModel) blurAll() {
 	ef.fastWTInput.Blur()
 	ef.startupScriptInput.Blur()
 	ef.teardownScriptInput.Blur()
+	ef.mergeWhenAcceptedInput.Blur()
 }
 
 func (ef *editProjectFormModel) focusCurrent() {
@@ -366,6 +375,8 @@ func (ef *editProjectFormModel) focusCurrent() {
 		ef.startupScriptInput.Focus()
 	case 4:
 		ef.teardownScriptInput.Focus()
+	case 5:
+		ef.mergeWhenAcceptedInput.Focus()
 	}
 }
 
@@ -379,6 +390,11 @@ func (ef *editProjectFormModel) loadFromProject(p *project.Project) {
 	}
 	ef.startupScriptInput.SetValue(p.StartupScript)
 	ef.teardownScriptInput.SetValue(p.TeardownScript)
+	if p.MergeWhenAccepted {
+		ef.mergeWhenAcceptedInput.SetValue("yes")
+	} else {
+		ef.mergeWhenAcceptedInput.SetValue("")
+	}
 	ef.focusIndex = 0
 	ef.focusCurrent()
 }
@@ -632,6 +648,7 @@ func initialModel(agentStore *agent.Store, queueManager *queue.Queue, projectSto
 		ciLastChecked:   make(map[string]time.Time),
 		ciChecking:      make(map[string]bool),
 		ciCheckProgress: make(map[string]ciProgress),
+		ciResumeHistory: make(map[string][]time.Time),
 		prevWindowNames:   make(map[string]string),
 		totalMemKB:        getTotalMemoryKB(),
 		clkTck:            getClockTicks(),
@@ -925,6 +942,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				delete(m.ciLastChecked, id)
 				delete(m.ciChecking, id)
 				delete(m.ciCheckProgress, id)
+				delete(m.ciResumeHistory, id)
 			}
 		}
 		if len(cmds) > 0 {
@@ -969,6 +987,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ciCheckProgress[msg.agentID] = ciProgress{Completed: msg.completed, Total: msg.total}
 		if msg.hasMergeConflict {
 			if currentAgent != nil {
+				if m.shouldThrottleResume(msg.agentID) {
+					m.throttleAgent(msg.agentID)
+					return m, m.refreshCmd()
+				}
+				m.recordResume(msg.agentID)
 				if wasWaitingReview {
 					m.queueManager.RemoveByAgentAndType(msg.agentID, queue.ItemTypePRReady)
 				}
@@ -989,6 +1012,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case ciStatusPassed:
 			if !wasWaitingReview {
 				delete(m.ciCheckProgress, msg.agentID)
+				delete(m.ciResumeHistory, msg.agentID)
 				summary := getPRTitleFromURL(msg.prURL)
 				if summary == "" {
 					summary = fmt.Sprintf("PR ready: %s", msg.prURL)
@@ -1001,6 +1025,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case ciStatusFailed:
 			if currentAgent != nil {
+				if m.shouldThrottleResume(msg.agentID) {
+					m.throttleAgent(msg.agentID)
+					return m, m.refreshCmd()
+				}
+				m.recordResume(msg.agentID)
 				if wasWaitingReview {
 					m.queueManager.RemoveByAgentAndType(msg.agentID, queue.ItemTypePRReady)
 				}
@@ -1139,6 +1168,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.editProjectForm.startupScriptInput, cmd = m.editProjectForm.startupScriptInput.Update(msg)
 		case 4:
 			m.editProjectForm.teardownScriptInput, cmd = m.editProjectForm.teardownScriptInput.Update(msg)
+		case 5:
+			m.editProjectForm.mergeWhenAcceptedInput, cmd = m.editProjectForm.mergeWhenAcceptedInput.Update(msg)
 		}
 		if cmd != nil {
 			cmds = append(cmds, cmd)
@@ -1762,11 +1793,11 @@ func (m model) handleEditProjectKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.selectedProj = nil
 		return m, nil
 	case "tab":
-		m.editProjectForm.focusIndex = (m.editProjectForm.focusIndex + 1) % 5
+		m.editProjectForm.focusIndex = (m.editProjectForm.focusIndex + 1) % 6
 		m.editProjectForm.focusCurrent()
 		return m, textinput.Blink
 	case "shift+tab":
-		m.editProjectForm.focusIndex = (m.editProjectForm.focusIndex + 4) % 5
+		m.editProjectForm.focusIndex = (m.editProjectForm.focusIndex + 5) % 6
 		m.editProjectForm.focusCurrent()
 		return m, textinput.Blink
 	case "enter":
@@ -1779,6 +1810,8 @@ func (m model) handleEditProjectKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		useFastWT := fastWTStr == "yes" || fastWTStr == "true" || fastWTStr == "y"
 		startupScript := strings.TrimSpace(m.editProjectForm.startupScriptInput.Value())
 		teardownScript := strings.TrimSpace(m.editProjectForm.teardownScriptInput.Value())
+		mergeStr := strings.ToLower(strings.TrimSpace(m.editProjectForm.mergeWhenAcceptedInput.Value()))
+		mergeWhenAccepted := mergeStr == "yes" || mergeStr == "true" || mergeStr == "y"
 		projName := m.selectedProj.Name
 		alreadyHasFastWT := m.selectedProj.UseFastWorktrees && m.selectedProj.FastWorktreePath != ""
 		m.editProjectForm.blurAll()
@@ -1787,7 +1820,7 @@ func (m model) handleEditProjectKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if useFastWT && !alreadyHasFastWT {
 			m.projSetupBuffers[projName] = &projImportBuffer{}
 		}
-		return m, m.updateProjectCmd(projName, path, baseBranch, useFastWT, startupScript, teardownScript)
+		return m, m.updateProjectCmd(projName, path, baseBranch, useFastWT, startupScript, teardownScript, mergeWhenAccepted)
 	}
 
 	var cmd tea.Cmd
@@ -1802,6 +1835,8 @@ func (m model) handleEditProjectKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.editProjectForm.startupScriptInput, cmd = m.editProjectForm.startupScriptInput.Update(msg)
 	case 4:
 		m.editProjectForm.teardownScriptInput, cmd = m.editProjectForm.teardownScriptInput.Update(msg)
+	case 5:
+		m.editProjectForm.mergeWhenAcceptedInput, cmd = m.editProjectForm.mergeWhenAcceptedInput.Update(msg)
 	}
 	return m, cmd
 }
@@ -2417,7 +2452,7 @@ func (m model) addProjectCmd(name, path string, useFastWT bool) tea.Cmd {
 	}
 }
 
-func (m model) updateProjectCmd(name, path, baseBranch string, useFastWT bool, startupScript, teardownScript string) tea.Cmd {
+func (m model) updateProjectCmd(name, path, baseBranch string, useFastWT bool, startupScript, teardownScript string, mergeWhenAccepted bool) tea.Cmd {
 	buf := m.projSetupBuffers[name]
 	return func() tea.Msg {
 		var fastWTPath string
@@ -2443,6 +2478,7 @@ func (m model) updateProjectCmd(name, path, baseBranch string, useFastWT bool, s
 			p.UseFastWorktrees = useFastWT
 			p.StartupScript = startupScript
 			p.TeardownScript = teardownScript
+			p.MergeWhenAccepted = mergeWhenAccepted
 			if needsImport {
 				p.SetupStatus = project.SetupStatusSettingUp
 			}
@@ -2557,14 +2593,36 @@ func (m model) cleanupAgentCmd(a *agent.Agent) tea.Cmd {
 
 func (m model) acceptPRCmd(a *agent.Agent) tea.Cmd {
 	agentID := a.ID
+	prURL := a.PRURL
+	projectName := a.ProjectName
 	return func() tea.Msg {
 		m.queueManager.RemoveByAgent(agentID)
+
+		var mergeWhenAccepted bool
+		if projectName != "" {
+			if proj, err := m.projectStore.Get(projectName); err == nil {
+				mergeWhenAccepted = proj.MergeWhenAccepted
+			}
+		}
+
+		if mergeWhenAccepted && prURL != "" {
+			readyCmd := exec.Command("gh", "pr", "ready", prURL)
+			readyCmd.CombinedOutput()
+
+			mergeCmd := exec.Command("gh", "pr", "merge", prURL, "--squash", "--delete-branch")
+			if output, err := mergeCmd.CombinedOutput(); err != nil {
+				return errMsg{fmt.Errorf("merge PR failed: %s: %w", string(output), err)}
+			}
+		}
 
 		go func() {
 			exePath, _ := os.Executable()
 			exec.Command(exePath, "cleanup", agentID).Run()
 		}()
 
+		if mergeWhenAccepted && prURL != "" {
+			return successMsg{fmt.Sprintf("Merged PR and cleaning up agent %s", agentID)}
+		}
 		return successMsg{fmt.Sprintf("Accepted PR, cleaning up agent %s", agentID)}
 	}
 }
@@ -2928,6 +2986,37 @@ ccmux agent-stopped "$AGENT_ID"
 	}
 
 	return scriptPath, nil
+}
+
+const (
+	ciResumeMaxAttempts = 3
+	ciResumeWindow      = 15 * time.Minute
+)
+
+func (m *model) shouldThrottleResume(agentID string) bool {
+	now := time.Now()
+	cutoff := now.Add(-ciResumeWindow)
+	var recent []time.Time
+	for _, t := range m.ciResumeHistory[agentID] {
+		if t.After(cutoff) {
+			recent = append(recent, t)
+		}
+	}
+	m.ciResumeHistory[agentID] = recent
+	return len(recent) >= ciResumeMaxAttempts
+}
+
+func (m *model) recordResume(agentID string) {
+	m.ciResumeHistory[agentID] = append(m.ciResumeHistory[agentID], time.Now())
+}
+
+func (m *model) throttleAgent(agentID string) {
+	m.agentStore.Update(agentID, func(ag *agent.Agent) {
+		ag.Status = agent.StatusReady
+	})
+	m.queueManager.RemoveByAgent(agentID)
+	m.queueManager.Add(queue.ItemTypeIdle, agentID, "Agent throttled - too many CI failures, needs manual intervention", "")
+	delete(m.ciCheckProgress, agentID)
 }
 
 func (m model) resumeAgentForCIFixCmd(a *agent.Agent, failureSummary string) tea.Cmd {
