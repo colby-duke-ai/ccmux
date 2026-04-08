@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -1032,5 +1033,134 @@ func TestHandleNewTaskWorktreeNameKeys_ShouldGoBackToPromptSelection_GivenEscWit
 	rm := result.(model)
 	if rm.view != ViewNewTaskSelectPrompts {
 		t.Errorf("expected ViewNewTaskSelectPrompts, got %d", rm.view)
+	}
+}
+
+func TestShouldThrottleResume_ShouldReturnFalse_GivenNoHistory(t *testing.T) {
+	// Setup.
+	m := newTestModel()
+	m.ciResumeHistory = make(map[string][]time.Time)
+
+	// Execute.
+	result := m.shouldThrottleResume("agent-1")
+
+	// Assert.
+	if result {
+		t.Error("expected no throttle with empty history")
+	}
+}
+
+func TestShouldThrottleResume_ShouldReturnFalse_GivenFewerThanMaxAttempts(t *testing.T) {
+	// Setup.
+	m := newTestModel()
+	m.ciResumeHistory = make(map[string][]time.Time)
+	now := time.Now()
+	m.ciResumeHistory["agent-1"] = []time.Time{
+		now.Add(-5 * time.Minute),
+		now.Add(-3 * time.Minute),
+	}
+
+	// Execute.
+	result := m.shouldThrottleResume("agent-1")
+
+	// Assert.
+	if result {
+		t.Error("expected no throttle with only 2 attempts")
+	}
+}
+
+func TestShouldThrottleResume_ShouldReturnTrue_GivenMaxAttemptsWithinWindow(t *testing.T) {
+	// Setup.
+	m := newTestModel()
+	m.ciResumeHistory = make(map[string][]time.Time)
+	now := time.Now()
+	m.ciResumeHistory["agent-1"] = []time.Time{
+		now.Add(-10 * time.Minute),
+		now.Add(-5 * time.Minute),
+		now.Add(-1 * time.Minute),
+	}
+
+	// Execute.
+	result := m.shouldThrottleResume("agent-1")
+
+	// Assert.
+	if !result {
+		t.Error("expected throttle with 3 attempts within 15 minutes")
+	}
+}
+
+func TestShouldThrottleResume_ShouldReturnFalse_GivenOldAttemptsOutsideWindow(t *testing.T) {
+	// Setup.
+	m := newTestModel()
+	m.ciResumeHistory = make(map[string][]time.Time)
+	now := time.Now()
+	m.ciResumeHistory["agent-1"] = []time.Time{
+		now.Add(-20 * time.Minute),
+		now.Add(-18 * time.Minute),
+		now.Add(-1 * time.Minute),
+	}
+
+	// Execute.
+	result := m.shouldThrottleResume("agent-1")
+
+	// Assert.
+	if result {
+		t.Error("expected no throttle when old attempts fall outside window")
+	}
+}
+
+func TestShouldThrottleResume_ShouldPruneOldEntries_GivenExpiredTimestamps(t *testing.T) {
+	// Setup.
+	m := newTestModel()
+	m.ciResumeHistory = make(map[string][]time.Time)
+	now := time.Now()
+	m.ciResumeHistory["agent-1"] = []time.Time{
+		now.Add(-30 * time.Minute),
+		now.Add(-25 * time.Minute),
+		now.Add(-20 * time.Minute),
+		now.Add(-1 * time.Minute),
+	}
+
+	// Execute.
+	m.shouldThrottleResume("agent-1")
+
+	// Assert.
+	if len(m.ciResumeHistory["agent-1"]) != 1 {
+		t.Errorf("expected 1 entry after pruning, got %d", len(m.ciResumeHistory["agent-1"]))
+	}
+}
+
+func TestRecordResume_ShouldAppendTimestamp_GivenExistingHistory(t *testing.T) {
+	// Setup.
+	m := newTestModel()
+	m.ciResumeHistory = make(map[string][]time.Time)
+	m.ciResumeHistory["agent-1"] = []time.Time{time.Now().Add(-5 * time.Minute)}
+
+	// Execute.
+	m.recordResume("agent-1")
+
+	// Assert.
+	if len(m.ciResumeHistory["agent-1"]) != 2 {
+		t.Errorf("expected 2 entries, got %d", len(m.ciResumeHistory["agent-1"]))
+	}
+}
+
+func TestShouldThrottleResume_ShouldNotAffectOtherAgents_GivenDifferentAgentIDs(t *testing.T) {
+	// Setup.
+	m := newTestModel()
+	m.ciResumeHistory = make(map[string][]time.Time)
+	now := time.Now()
+	m.ciResumeHistory["agent-1"] = []time.Time{
+		now.Add(-10 * time.Minute),
+		now.Add(-5 * time.Minute),
+		now.Add(-1 * time.Minute),
+	}
+
+	// Execute.
+	result := m.shouldThrottleResume("agent-2")
+
+	// Assert.
+	if result {
+		t.Error("expected no throttle for agent-2 when only agent-1 has history")
 	}
 }

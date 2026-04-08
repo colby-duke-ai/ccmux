@@ -107,6 +107,7 @@ type model struct {
 	ciLastChecked    map[string]time.Time
 	ciChecking       map[string]bool
 	ciCheckProgress  map[string]ciProgress
+	ciResumeHistory  map[string][]time.Time
 
 	// Resource monitoring
 	agentResources   map[string]*AgentResources
@@ -647,6 +648,7 @@ func initialModel(agentStore *agent.Store, queueManager *queue.Queue, projectSto
 		ciLastChecked:   make(map[string]time.Time),
 		ciChecking:      make(map[string]bool),
 		ciCheckProgress: make(map[string]ciProgress),
+		ciResumeHistory: make(map[string][]time.Time),
 		prevWindowNames:   make(map[string]string),
 		totalMemKB:        getTotalMemoryKB(),
 		clkTck:            getClockTicks(),
@@ -940,6 +942,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				delete(m.ciLastChecked, id)
 				delete(m.ciChecking, id)
 				delete(m.ciCheckProgress, id)
+				delete(m.ciResumeHistory, id)
 			}
 		}
 		if len(cmds) > 0 {
@@ -984,6 +987,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ciCheckProgress[msg.agentID] = ciProgress{Completed: msg.completed, Total: msg.total}
 		if msg.hasMergeConflict {
 			if currentAgent != nil {
+				if m.shouldThrottleResume(msg.agentID) {
+					m.throttleAgent(msg.agentID)
+					return m, m.refreshCmd()
+				}
+				m.recordResume(msg.agentID)
 				if wasWaitingReview {
 					m.queueManager.RemoveByAgentAndType(msg.agentID, queue.ItemTypePRReady)
 				}
@@ -1004,6 +1012,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case ciStatusPassed:
 			if !wasWaitingReview {
 				delete(m.ciCheckProgress, msg.agentID)
+				delete(m.ciResumeHistory, msg.agentID)
 				summary := getPRTitleFromURL(msg.prURL)
 				if summary == "" {
 					summary = fmt.Sprintf("PR ready: %s", msg.prURL)
@@ -1016,6 +1025,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case ciStatusFailed:
 			if currentAgent != nil {
+				if m.shouldThrottleResume(msg.agentID) {
+					m.throttleAgent(msg.agentID)
+					return m, m.refreshCmd()
+				}
+				m.recordResume(msg.agentID)
 				if wasWaitingReview {
 					m.queueManager.RemoveByAgentAndType(msg.agentID, queue.ItemTypePRReady)
 				}
@@ -2972,6 +2986,37 @@ ccmux agent-stopped "$AGENT_ID"
 	}
 
 	return scriptPath, nil
+}
+
+const (
+	ciResumeMaxAttempts = 3
+	ciResumeWindow      = 15 * time.Minute
+)
+
+func (m *model) shouldThrottleResume(agentID string) bool {
+	now := time.Now()
+	cutoff := now.Add(-ciResumeWindow)
+	var recent []time.Time
+	for _, t := range m.ciResumeHistory[agentID] {
+		if t.After(cutoff) {
+			recent = append(recent, t)
+		}
+	}
+	m.ciResumeHistory[agentID] = recent
+	return len(recent) >= ciResumeMaxAttempts
+}
+
+func (m *model) recordResume(agentID string) {
+	m.ciResumeHistory[agentID] = append(m.ciResumeHistory[agentID], time.Now())
+}
+
+func (m *model) throttleAgent(agentID string) {
+	m.agentStore.Update(agentID, func(ag *agent.Agent) {
+		ag.Status = agent.StatusReady
+	})
+	m.queueManager.RemoveByAgent(agentID)
+	m.queueManager.Add(queue.ItemTypeIdle, agentID, "Agent throttled - too many CI failures, needs manual intervention", "")
+	delete(m.ciCheckProgress, agentID)
 }
 
 func (m model) resumeAgentForCIFixCmd(a *agent.Agent, failureSummary string) tea.Cmd {
