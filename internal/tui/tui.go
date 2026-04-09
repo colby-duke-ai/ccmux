@@ -1004,6 +1004,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.hasNewReview {
 			if currentAgent != nil {
+				if m.shouldThrottleResume(msg.agentID) {
+					m.throttleAgent(msg.agentID)
+					return m, m.refreshCmd()
+				}
+				m.recordResume(msg.agentID)
 				if wasWaitingReview {
 					m.queueManager.RemoveByAgentAndType(msg.agentID, queue.ItemTypePRReady)
 				}
@@ -2645,6 +2650,7 @@ func (m model) commentPRCmd(a *agent.Agent, prURL string) tea.Cmd {
 	return func() tea.Msg {
 		m.agentStore.Update(agentID, func(ag *agent.Agent) {
 			ag.Status = agent.StatusRunning
+			ag.CIWaitAt = time.Now()
 		})
 
 		m.queueManager.RemoveByAgent(agentID)
@@ -3153,6 +3159,7 @@ func (m model) resumeAgentForNewReviewCmd(a *agent.Agent, prURL string) tea.Cmd 
 	return func() tea.Msg {
 		m.agentStore.Update(agentID, func(ag *agent.Agent) {
 			ag.Status = agent.StatusRunning
+			ag.CIWaitAt = time.Now()
 		})
 
 		m.queueManager.RemoveByAgent(agentID)
