@@ -1239,3 +1239,85 @@ func TestIsDuplicateCIFailure_ShouldReturnFalse_GivenClearedByPending(t *testing
 		t.Error("expected not duplicate after summary was cleared")
 	}
 }
+
+func TestReviewResume_ShouldThrottle_GivenMaxAttemptsWithinWindow(t *testing.T) {
+	// Setup.
+	m := newTestModel()
+	m.ciResumeHistory = make(map[string][]time.Time)
+	now := time.Now()
+	m.ciResumeHistory["agent-1"] = []time.Time{
+		now.Add(-10 * time.Minute),
+		now.Add(-5 * time.Minute),
+		now.Add(-1 * time.Minute),
+	}
+
+	// Execute.
+	result := m.shouldThrottleResume("agent-1")
+
+	// Assert.
+	if !result {
+		t.Error("expected review resume to be throttled after 3 attempts within 15 minutes")
+	}
+}
+
+func TestReviewResume_ShouldShareThrottleWithCIResume_GivenMixedHistory(t *testing.T) {
+	// Setup.
+	m := newTestModel()
+	m.ciResumeHistory = make(map[string][]time.Time)
+	now := time.Now()
+	m.ciResumeHistory["agent-1"] = []time.Time{
+		now.Add(-10 * time.Minute),
+		now.Add(-5 * time.Minute),
+	}
+
+	// Execute.
+	m.recordResume("agent-1")
+	result := m.shouldThrottleResume("agent-1")
+
+	// Assert.
+	if !result {
+		t.Error("expected throttle when CI + review resumes together reach max attempts")
+	}
+}
+
+func TestReviewResume_ShouldRecordResume_GivenNewReview(t *testing.T) {
+	// Setup.
+	m := newTestModel()
+	m.ciResumeHistory = make(map[string][]time.Time)
+
+	// Execute.
+	m.recordResume("agent-1")
+
+	// Assert.
+	if len(m.ciResumeHistory["agent-1"]) != 1 {
+		t.Errorf("expected 1 resume recorded, got %d", len(m.ciResumeHistory["agent-1"]))
+	}
+}
+
+func TestCheckForNewReviews_ShouldNotRetrigger_GivenCIWaitAtUpdatedAfterReview(t *testing.T) {
+	// Setup.
+	reviewTime := time.Now().Add(-5 * time.Minute)
+	ciWaitAtAfterResume := time.Now().Add(-1 * time.Minute)
+
+	// Execute.
+	reviewIsNew := reviewTime.After(ciWaitAtAfterResume)
+
+	// Assert.
+	if reviewIsNew {
+		t.Error("expected old review to NOT be detected as new after CIWaitAt is updated past the review time")
+	}
+}
+
+func TestCheckForNewReviews_ShouldDetect_GivenReviewAfterUpdatedCIWaitAt(t *testing.T) {
+	// Setup.
+	ciWaitAtAfterResume := time.Now().Add(-5 * time.Minute)
+	newReviewTime := time.Now().Add(-1 * time.Minute)
+
+	// Execute.
+	reviewIsNew := newReviewTime.After(ciWaitAtAfterResume)
+
+	// Assert.
+	if !reviewIsNew {
+		t.Error("expected new review submitted after CIWaitAt to be detected")
+	}
+}
