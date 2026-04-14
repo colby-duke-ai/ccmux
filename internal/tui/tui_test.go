@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/CDFalcon/ccmux/internal/agent"
 	"github.com/CDFalcon/ccmux/internal/project"
 	"github.com/CDFalcon/ccmux/internal/prompt"
 )
@@ -1291,6 +1292,100 @@ func TestReviewResume_ShouldRecordResume_GivenNewReview(t *testing.T) {
 	// Assert.
 	if len(m.ciResumeHistory["agent-1"]) != 1 {
 		t.Errorf("expected 1 resume recorded, got %d", len(m.ciResumeHistory["agent-1"]))
+	}
+}
+
+func TestCICleanup_ShouldPreserveThrottleState_GivenAgentInRunningStatus(t *testing.T) {
+	// Setup.
+	m := newTestModel()
+	m.ciResumeHistory = make(map[string][]time.Time)
+	m.ciLastNotifiedSummary = make(map[string]string)
+	m.ciLastChecked = make(map[string]time.Time)
+	m.ciChecking = make(map[string]bool)
+	m.ciCheckProgress = make(map[string]ciProgress)
+
+	now := time.Now()
+	m.ciResumeHistory["agent-1"] = []time.Time{
+		now.Add(-10 * time.Minute),
+		now.Add(-5 * time.Minute),
+	}
+	m.ciLastNotifiedSummary["agent-1"] = "CI checks failed: check-pr-title"
+	m.ciLastChecked["agent-1"] = now
+
+	m.agents = []*agent.Agent{
+		{ID: "agent-1", Status: agent.StatusRunning, PRURL: "https://example.com/pr/1"},
+	}
+
+	// Execute.
+	activeWaiting := make(map[string]bool)
+	agentExists := make(map[string]bool)
+	for _, a := range m.agents {
+		agentExists[a.ID] = true
+	}
+	for id := range m.ciLastChecked {
+		if !activeWaiting[id] {
+			delete(m.ciLastChecked, id)
+			delete(m.ciChecking, id)
+			delete(m.ciCheckProgress, id)
+			if !agentExists[id] {
+				delete(m.ciResumeHistory, id)
+				delete(m.ciLastNotifiedSummary, id)
+			}
+		}
+	}
+
+	// Assert.
+	if len(m.ciResumeHistory["agent-1"]) != 2 {
+		t.Errorf("expected resume history preserved, got %d entries", len(m.ciResumeHistory["agent-1"]))
+	}
+	if m.ciLastNotifiedSummary["agent-1"] != "CI checks failed: check-pr-title" {
+		t.Error("expected last notified summary preserved for running agent")
+	}
+}
+
+func TestCICleanup_ShouldDeleteThrottleState_GivenAgentRemoved(t *testing.T) {
+	// Setup.
+	m := newTestModel()
+	m.ciResumeHistory = make(map[string][]time.Time)
+	m.ciLastNotifiedSummary = make(map[string]string)
+	m.ciLastChecked = make(map[string]time.Time)
+	m.ciChecking = make(map[string]bool)
+	m.ciCheckProgress = make(map[string]ciProgress)
+
+	now := time.Now()
+	m.ciResumeHistory["agent-1"] = []time.Time{
+		now.Add(-10 * time.Minute),
+		now.Add(-5 * time.Minute),
+	}
+	m.ciLastNotifiedSummary["agent-1"] = "CI checks failed: check-pr-title"
+	m.ciLastChecked["agent-1"] = now
+
+	m.agents = []*agent.Agent{}
+
+	// Execute.
+	activeWaiting := make(map[string]bool)
+	agentExists := make(map[string]bool)
+	for _, a := range m.agents {
+		agentExists[a.ID] = true
+	}
+	for id := range m.ciLastChecked {
+		if !activeWaiting[id] {
+			delete(m.ciLastChecked, id)
+			delete(m.ciChecking, id)
+			delete(m.ciCheckProgress, id)
+			if !agentExists[id] {
+				delete(m.ciResumeHistory, id)
+				delete(m.ciLastNotifiedSummary, id)
+			}
+		}
+	}
+
+	// Assert.
+	if _, exists := m.ciResumeHistory["agent-1"]; exists {
+		t.Error("expected resume history deleted for removed agent")
+	}
+	if _, exists := m.ciLastNotifiedSummary["agent-1"]; exists {
+		t.Error("expected last notified summary deleted for removed agent")
 	}
 }
 

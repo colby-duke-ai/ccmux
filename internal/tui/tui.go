@@ -939,13 +939,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+		agentExists := make(map[string]bool)
+		for _, a := range m.agents {
+			agentExists[a.ID] = true
+		}
 		for id := range m.ciLastChecked {
 			if !activeWaiting[id] {
 				delete(m.ciLastChecked, id)
 				delete(m.ciChecking, id)
 				delete(m.ciCheckProgress, id)
-				delete(m.ciResumeHistory, id)
-				delete(m.ciLastNotifiedSummary, id)
+				if !agentExists[id] {
+					delete(m.ciResumeHistory, id)
+					delete(m.ciLastNotifiedSummary, id)
+				}
 			}
 		}
 		if len(cmds) > 0 {
