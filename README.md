@@ -46,10 +46,6 @@ mv ccmux-linux-amd64 ~/.local/bin/ccmux
 
 # Ensure ~/.local/bin is in your PATH (add to ~/.bashrc if not already present)
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
-
-# Optional: install proj for near-instant worktree creation on large repos
-# Requires an XFS filesystem with reflink support (see proj README for setup)
-# git clone git@github.com:Applied-Shared/proj.git && export PATH="$PATH:$(pwd)/proj/src"
 ```
 
 ## Setup (macOS Apple Silicon)
@@ -71,11 +67,6 @@ mv ccmux-darwin-arm64 ~/.local/bin/ccmux
 
 # Ensure ~/.local/bin is in your PATH (add to ~/.zshrc if not already present)
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
-
-# Optional: install proj for near-instant worktree creation on large repos
-# Note: proj requires an XFS filesystem with reflink support, which is not
-# natively available on macOS. See the proj README for alternatives.
-# git clone git@github.com:Applied-Shared/proj.git && export PATH="$PATH:$(pwd)/proj/src"
 ```
 
 ## Quick Start

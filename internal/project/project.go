@@ -257,7 +257,7 @@ func ProjImport(repoPath string, onLine func(string)) (string, error) {
 	}
 	projRoot := os.Getenv("PROJ_ROOT")
 	if projRoot == "" {
-		return "", fmt.Errorf("PROJ_ROOT is not set — see github.com/Applied-Shared/proj for setup")
+		return "", fmt.Errorf("PROJ_ROOT is not set")
 	}
 	branch := DetectDefaultBranch(repoPath)
 	repoName := filepath.Base(repoPath)
