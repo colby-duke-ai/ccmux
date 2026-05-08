@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -1725,11 +1726,25 @@ func (m model) handleReviewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.selectedIndex >= 0 && m.selectedIndex < len(items) {
 			selected := items[m.selectedIndex]
 			if selected.Details != "" {
-				exec.Command("xdg-open", selected.Details).Start()
+				openInBrowser(selected.Details)
 			}
 		}
 	}
 	return m, nil
+}
+
+// openInBrowser opens a URL in the default browser, choosing the right command per OS.
+func openInBrowser(url string) {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", url)
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+	default:
+		cmd = exec.Command("xdg-open", url)
+	}
+	_ = cmd.Start()
 }
 
 func (m model) handleConfirmMergeKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
