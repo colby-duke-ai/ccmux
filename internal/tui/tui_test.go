@@ -1452,31 +1452,148 @@ func TestCIDedup_ShouldNotBeClearedOnPending_GivenFailureFollowedByPending(t *te
 	}
 }
 
-func TestCheckForNewReviews_ShouldNotRetrigger_GivenCIWaitAtUpdatedAfterReview(t *testing.T) {
+func TestHasUnaddressedReview_ShouldNotRetrigger_GivenReviewBeforeSince(t *testing.T) {
 	// Setup.
-	reviewTime := time.Now().Add(-5 * time.Minute)
-	ciWaitAtAfterResume := time.Now().Add(-1 * time.Minute)
+	since := time.Now().Add(-1 * time.Minute)
+	reviews := []prReview{{SubmittedAt: time.Now().Add(-5 * time.Minute)}}
 
 	// Execute.
-	reviewIsNew := reviewTime.After(ciWaitAtAfterResume)
+	result := hasUnaddressedReview(reviews, nil, nil, "", since)
 
 	// Assert.
-	if reviewIsNew {
-		t.Error("expected old review to NOT be detected as new after CIWaitAt is updated past the review time")
+	if result {
+		t.Error("expected review submitted before CIWaitAt to be skipped")
 	}
 }
 
-func TestCheckForNewReviews_ShouldDetect_GivenReviewAfterUpdatedCIWaitAt(t *testing.T) {
+func TestHasUnaddressedReview_ShouldDetect_GivenReviewAfterSince(t *testing.T) {
 	// Setup.
-	ciWaitAtAfterResume := time.Now().Add(-5 * time.Minute)
-	newReviewTime := time.Now().Add(-1 * time.Minute)
+	since := time.Now().Add(-5 * time.Minute)
+	reviews := []prReview{{SubmittedAt: time.Now().Add(-1 * time.Minute)}}
 
 	// Execute.
-	reviewIsNew := newReviewTime.After(ciWaitAtAfterResume)
+	result := hasUnaddressedReview(reviews, nil, nil, "", since)
 
 	// Assert.
-	if !reviewIsNew {
+	if !result {
 		t.Error("expected new review submitted after CIWaitAt to be detected")
+	}
+}
+
+func TestHasUnaddressedReview_ShouldNotRetrigger_GivenCommitPushedAfterReview(t *testing.T) {
+	// Setup. This guards the headline bug: ccmux kept treating a review as
+	// "unaddressed" even after the agent pushed a follow-up commit, causing
+	// the same feedback to re-trigger the agent in a loop.
+	since := time.Now().Add(-1 * time.Hour)
+	reviewTime := time.Now().Add(-30 * time.Minute)
+	pushTime := time.Now().Add(-5 * time.Minute)
+	reviews := []prReview{{SubmittedAt: reviewTime}}
+	commits := []prCommit{{CommittedDate: pushTime}}
+
+	// Execute.
+	result := hasUnaddressedReview(reviews, commits, nil, "", since)
+
+	// Assert.
+	if result {
+		t.Error("expected review followed by a commit to be considered addressed")
+	}
+}
+
+func TestHasUnaddressedReview_ShouldDetect_GivenReviewAfterLatestCommit(t *testing.T) {
+	// Setup. A fresh review after the latest push is unaddressed.
+	since := time.Now().Add(-1 * time.Hour)
+	pushTime := time.Now().Add(-30 * time.Minute)
+	reviewTime := time.Now().Add(-5 * time.Minute)
+	reviews := []prReview{{SubmittedAt: reviewTime}}
+	commits := []prCommit{{CommittedDate: pushTime}}
+
+	// Execute.
+	result := hasUnaddressedReview(reviews, commits, nil, "", since)
+
+	// Assert.
+	if !result {
+		t.Error("expected review submitted after latest commit to need addressing")
+	}
+}
+
+func TestHasUnaddressedReview_ShouldDetect_GivenMixOfAddressedAndUnaddressedReviews(t *testing.T) {
+	// Setup. The user adds a second review after the agent's follow-up push.
+	since := time.Now().Add(-1 * time.Hour)
+	firstReview := time.Now().Add(-45 * time.Minute)
+	push := time.Now().Add(-30 * time.Minute)
+	secondReview := time.Now().Add(-5 * time.Minute)
+	reviews := []prReview{
+		{SubmittedAt: firstReview},
+		{SubmittedAt: secondReview},
+	}
+	commits := []prCommit{{CommittedDate: push}}
+
+	// Execute.
+	result := hasUnaddressedReview(reviews, commits, nil, "", since)
+
+	// Assert.
+	if !result {
+		t.Error("expected unaddressed second review to trigger even when first review was addressed")
+	}
+}
+
+func TestHasUnaddressedReview_ShouldIgnore_GivenOnlySelfAuthoredIssueComments(t *testing.T) {
+	// Setup. The agent often posts its own "Pushed $sha to address X" status
+	// comment after fixing review feedback. Those self-comments must not
+	// re-trigger the agent.
+	since := time.Now().Add(-1 * time.Hour)
+	comments := []prIssueComment{
+		{CreatedAt: time.Now().Add(-1 * time.Minute), Author: struct {
+			Login string `json:"login"`
+		}{Login: "CDFalcon"}},
+	}
+
+	// Execute.
+	result := hasUnaddressedReview(nil, nil, comments, "CDFalcon", since)
+
+	// Assert.
+	if result {
+		t.Error("expected agent's own conversation comment to be ignored")
+	}
+}
+
+func TestHasUnaddressedReview_ShouldDetect_GivenForeignIssueCommentAfterLastPush(t *testing.T) {
+	// Setup. A conversation comment from someone other than the PR author,
+	// posted after the last push, should be flagged for attention.
+	since := time.Now().Add(-1 * time.Hour)
+	commits := []prCommit{{CommittedDate: time.Now().Add(-30 * time.Minute)}}
+	comments := []prIssueComment{
+		{CreatedAt: time.Now().Add(-1 * time.Minute), Author: struct {
+			Login string `json:"login"`
+		}{Login: "reviewer"}},
+	}
+
+	// Execute.
+	result := hasUnaddressedReview(nil, commits, comments, "CDFalcon", since)
+
+	// Assert.
+	if !result {
+		t.Error("expected foreign conversation comment after last push to need attention")
+	}
+}
+
+func TestHasUnaddressedReview_ShouldNotRetrigger_GivenIssueCommentAddressedByPush(t *testing.T) {
+	// Setup. A conversation comment that predates the latest push is already
+	// addressed.
+	since := time.Now().Add(-1 * time.Hour)
+	commits := []prCommit{{CommittedDate: time.Now().Add(-1 * time.Minute)}}
+	comments := []prIssueComment{
+		{CreatedAt: time.Now().Add(-30 * time.Minute), Author: struct {
+			Login string `json:"login"`
+		}{Login: "reviewer"}},
+	}
+
+	// Execute.
+	result := hasUnaddressedReview(nil, commits, comments, "CDFalcon", since)
+
+	// Assert.
+	if result {
+		t.Error("expected conversation comment followed by a commit to be considered addressed")
 	}
 }
 
