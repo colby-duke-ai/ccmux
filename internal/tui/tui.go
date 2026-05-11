@@ -3003,26 +3003,78 @@ type prReview struct {
 	State       string    `json:"state"`
 }
 
+type prCommit struct {
+	CommittedDate time.Time `json:"committedDate"`
+}
+
+type prIssueComment struct {
+	CreatedAt time.Time `json:"createdAt"`
+	Author    struct {
+		Login string `json:"login"`
+	} `json:"author"`
+}
+
+// hasUnaddressedReview reports whether the PR has reviews/comments that the
+// agent should still act on. A review or conversation comment is considered
+// "addressed" if the PR has a commit pushed AFTER it — even if the agent's fix
+// is imperfect, a later push means ccmux should not keep re-triggering on the
+// same feedback. The since cutoff (CIWaitAt) excludes feedback the agent has
+// already been resumed for.
+//
+// The viewerLogin parameter is the PR author's login as returned by gh; their
+// own conversation comments are ignored so the agent doesn't loop on its own
+// "pushed $sha to address X" status messages.
+func hasUnaddressedReview(reviews []prReview, commits []prCommit, comments []prIssueComment, viewerLogin string, since time.Time) bool {
+	var latestCommit time.Time
+	for _, c := range commits {
+		if c.CommittedDate.After(latestCommit) {
+			latestCommit = c.CommittedDate
+		}
+	}
+	for _, review := range reviews {
+		if !review.SubmittedAt.After(since) {
+			continue
+		}
+		if latestCommit.After(review.SubmittedAt) {
+			continue
+		}
+		return true
+	}
+	for _, comment := range comments {
+		if !comment.CreatedAt.After(since) {
+			continue
+		}
+		if viewerLogin != "" && comment.Author.Login == viewerLogin {
+			continue
+		}
+		if latestCommit.After(comment.CreatedAt) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
 func checkForNewReviews(ctx context.Context, owner, repo, prNumber string, since time.Time) bool {
-	cmd := exec.CommandContext(ctx, "gh", "pr", "view", prNumber, "--repo", owner+"/"+repo, "--json", "reviews")
+	cmd := exec.CommandContext(ctx, "gh", "pr", "view", prNumber, "--repo", owner+"/"+repo, "--json", "reviews,commits,comments,author")
 	output, err := cmd.Output()
 	if err != nil {
 		return false
 	}
 
 	var resp struct {
-		Reviews []prReview `json:"reviews"`
+		Reviews  []prReview       `json:"reviews"`
+		Commits  []prCommit       `json:"commits"`
+		Comments []prIssueComment `json:"comments"`
+		Author   struct {
+			Login string `json:"login"`
+		} `json:"author"`
 	}
 	if err := json.Unmarshal(output, &resp); err != nil {
 		return false
 	}
 
-	for _, review := range resp.Reviews {
-		if review.SubmittedAt.After(since) {
-			return true
-		}
-	}
-	return false
+	return hasUnaddressedReview(resp.Reviews, resp.Commits, resp.Comments, resp.Author.Login, since)
 }
 
 func getPRTitleFromURL(prURL string) string {
