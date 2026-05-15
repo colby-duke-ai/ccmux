@@ -1726,15 +1726,21 @@ func (m model) handleReviewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.selectedIndex >= 0 && m.selectedIndex < len(items) {
 			selected := items[m.selectedIndex]
 			if selected.Details != "" {
-				openInBrowser(selected.Details)
+				if err := openInBrowser(selected.Details); err != nil {
+					m.err = fmt.Errorf("couldn't open browser: %w", err)
+					return m, clearMessageCmd()
+				}
 			}
 		}
 	}
 	return m, nil
 }
 
-// openInBrowser opens a URL in the default browser, choosing the right command per OS.
-func openInBrowser(url string) {
+// openInBrowser opens a URL in the default browser, choosing the right command
+// per OS. It returns an error if the platform's opener command can't be started
+// (e.g. it isn't on PATH) so callers can surface the failure instead of having
+// it vanish silently.
+func openInBrowser(url string) error {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
@@ -1744,7 +1750,7 @@ func openInBrowser(url string) {
 	default:
 		cmd = exec.Command("xdg-open", url)
 	}
-	_ = cmd.Start()
+	return cmd.Start()
 }
 
 func (m model) handleConfirmMergeKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
